@@ -31,6 +31,9 @@ public static class ApplicationInstaller
         // Matching (M1): one place scores a property against a requirement and keeps the matches current.
         services.AddScoped<Features.Matching.MatchEngine>();
         services.AddScoped<Features.Properties.HoldRelease>();
+        // Site visits and sharing (M2).
+        services.AddScoped<Features.Visits.VisitReminders>();
+        services.AddScoped<Features.Visits.VisitMapper>();
 
         return services;
     }

@@ -32,6 +32,7 @@ public sealed class SchemaTests
             "ZeroNova_saveEstateProperty(", "ZeroNova_confirmEstateProperty(", "ZeroNova_deleteEstateProperty(", "ZeroNova_setEstatePropertyOwners(",
             "ZeroNova_saveEstateParty(", "ZeroNova_saveEstateRequirement(", "ZeroNova_closeEstateRequirement(", "ZeroNova_updateEstateMatch(",
             "ZeroNova_saveEstateSettings(", "ZeroNova_saveEstateCustomField(", "ZeroNova_deleteEstateCustomField(",
+            "ZeroNova_estateVisits(", "ZeroNova_estateShares(", "ZeroNova_estateSharedProperty(", "ZeroNova_estateOwnerCheckDraft(", "ZeroNova_scheduleEstateVisit(", "ZeroNova_rescheduleEstateVisit(", "ZeroNova_recordEstateVisitResult(", "ZeroNova_shareEstateProperty(",
             "BUILDER_FLOOR", "NORTH_EAST", "SQ_YD", "MARLA", "price: Decimal", "sizeSqFt: Decimal",
         })
             Assert.Contains(field, sdl);

@@ -29,6 +29,21 @@ public interface IMatchRepository : ICompanyRepositoryBase<MatchDocument>
     Task DropNewAsync(string? propertyId, string? requirementId, IReadOnlyCollection<string> keep, CancellationToken ct = default, string? companyId = null);
 }
 
+public interface IVisitRepository : ICompanyRepositoryBase<VisitDocument>
+{
+    /// <summary>Scheduled visits starting before <paramref name="until"/> and not yet reminded, across companies — the reminder job's read.</summary>
+    Task<IReadOnlyList<VisitDocument>> DueForReminderAsync(DateTime until, int take, CancellationToken ct = default);
+}
+
+public interface IShareRepository : ICompanyRepositoryBase<ShareDocument>
+{
+    /// <summary>The share with this token, across companies — the public page's one deliberate cross-tenant read.</summary>
+    Task<ShareDocument?> FindByTokenAnyTenantAsync(string token, CancellationToken ct = default);
+
+    /// <summary>Counts an open.</summary>
+    Task RecordOpenAsync(string shareId, string companyId, DateTime at, CancellationToken ct = default);
+}
+
 public interface IEstateSettingsRepository : ICompanyRepositoryBase<EstateSettingsDocument>;
 
 public interface ICustomFieldRepository : ICompanyRepositoryBase<CustomFieldDocument>;

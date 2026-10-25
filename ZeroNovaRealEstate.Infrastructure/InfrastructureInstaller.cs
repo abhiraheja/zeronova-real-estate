@@ -35,12 +35,16 @@ public static class InfrastructureInstaller
         services.AddScoped<ICustomFieldRepository, CustomFieldRepository>();
         services.AddScoped<ILocalityRepository, LocalityRepository>();
         services.AddScoped<ICounterRepository, CounterRepository>();
+        services.AddScoped<IVisitRepository, VisitRepository>();
+        services.AddScoped<IShareRepository, ShareRepository>();
         services.AddHostedService<IndexInitializer>();
         // After the indexes (hosted services start in order): holds that ran out go back to available.
         services.AddHostedService<HoldReleaseJob>();
+        services.AddHostedService<VisitReminderJob>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(configuration.GetSection(DocumentsOptions.SectionName).Get<DocumentsOptions>() ?? new DocumentsOptions());
+        services.AddSingleton(configuration.GetSection(ShareOptions.SectionName).Get<ShareOptions>() ?? new ShareOptions());
 
         // Aadhaar and PAN are sealed with Core's master key (D11). A missing or placeholder key leaves the service up.
         var encryption = configuration.GetSection(EncryptionOptions.SectionName).Get<EncryptionOptions>() ?? new EncryptionOptions();

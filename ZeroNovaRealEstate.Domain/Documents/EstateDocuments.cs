@@ -112,6 +112,8 @@ public sealed class EstateSettingsDocument : CompanyDocumentBase
     [BsonElement("matchThreshold")] public int MatchThreshold { get; set; } = 50;
     [BsonElement("defaultCity")] public string? DefaultCity { get; set; }
     [BsonElement("reraNumber")] public string? ReraNumber { get; set; }
+    [BsonElement("dealerName")] public string? DealerName { get; set; }
+    [BsonElement("dealerPhone")] public string? DealerPhone { get; set; }
 }
 
 /// <summary>A field the dealer added (D4).</summary>
@@ -146,4 +148,42 @@ public sealed class CounterDocument : CompanyDocumentBase
 {
     [BsonElement("name")] public required string Name { get; set; }
     [BsonElement("value")] public long Value { get; set; }
+}
+
+/// <summary>A site visit (M2). A reminder bell goes to the agent once, an hour before.</summary>
+[DocumentName("re_visits")]
+public sealed class VisitDocument : CompanyDocumentBase
+{
+    [BsonElement("propertyId")] public required string PropertyId { get; set; }
+    [BsonElement("requirementId")] public string? RequirementId { get; set; }
+    [BsonElement("leadId")] public required string LeadId { get; set; }
+    [BsonElement("leadName")] public string? LeadName { get; set; }
+    [BsonElement("leadPhone")] public string? LeadPhone { get; set; }
+    [BsonElement("agentId")] public required string AgentId { get; set; }
+    [BsonElement("at")] public DateTime At { get; set; }
+    [BsonElement("meetingPoint")] public string? MeetingPoint { get; set; }
+
+    [BsonElement("status")]
+    [BsonRepresentation(BsonType.String)]
+    public Models.Visits.VisitStatus Status { get; set; } = Models.Visits.VisitStatus.Scheduled;
+
+    [BsonElement("outcome")]
+    [BsonRepresentation(BsonType.String)]
+    public Models.Visits.VisitOutcome? Outcome { get; set; }
+
+    [BsonElement("feedback")] public string? Feedback { get; set; }
+    [BsonElement("notes")] public string? Notes { get; set; }
+    [BsonElement("reminded")] public bool Reminded { get; set; }
+}
+
+/// <summary>A share link (M2): an unguessable token, what it shows, and how often it was opened.</summary>
+[DocumentName("re_shares")]
+public sealed class ShareDocument : CompanyDocumentBase
+{
+    [BsonElement("token")] public required string Token { get; set; }
+    [BsonElement("propertyId")] public required string PropertyId { get; set; }
+    [BsonElement("requirementId")] public string? RequirementId { get; set; }
+    [BsonElement("createdAt")] public DateTime CreatedAt { get; set; }
+    [BsonElement("opens")] public int Opens { get; set; }
+    [BsonElement("lastOpenedAt")] public DateTime? LastOpenedAt { get; set; }
 }

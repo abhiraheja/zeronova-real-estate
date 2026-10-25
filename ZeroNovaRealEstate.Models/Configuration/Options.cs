@@ -87,3 +87,11 @@ public sealed class EncryptionOptions
 
     public string Key { get; set; } = string.Empty;
 }
+
+/// <summary>Config section <c>"Share"</c> — the app's public address; a share link is <c>{BaseUrl}/p/{token}</c>.</summary>
+public sealed class ShareOptions
+{
+    public const string SectionName = "Share";
+
+    public string BaseUrl { get; set; } = "https://app.zeronova.in";
+}

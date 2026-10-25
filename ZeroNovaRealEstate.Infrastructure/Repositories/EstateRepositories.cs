@@ -72,6 +72,27 @@ public sealed class MatchRepository(IMongoDatabase database, IRequestContext con
     }
 }
 
+public sealed class VisitRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<VisitDocument>(database, context), IVisitRepository
+{
+    // Deliberately across companies — see the interface.
+    public async Task<IReadOnlyList<VisitDocument>> DueForReminderAsync(DateTime until, int take, CancellationToken ct = default) =>
+        await Collection.Find(v => v.Status == Models.Visits.VisitStatus.Scheduled && !v.Reminded && !v.IsDeleted && v.At <= until)
+            .Limit(take).ToListAsync(ct);
+}
+
+public sealed class ShareRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<ShareDocument>(database, context), IShareRepository
+{
+    // Deliberately across companies — see the interface. The token is the only key.
+    public async Task<ShareDocument?> FindByTokenAnyTenantAsync(string token, CancellationToken ct = default) =>
+        await Collection.Find(s => s.Token == token && !s.IsDeleted).FirstOrDefaultAsync(ct);
+
+    public Task RecordOpenAsync(string shareId, string companyId, DateTime at, CancellationToken ct = default) =>
+        Collection.UpdateOneAsync(s => s.Id == shareId && s.CompanyId == companyId,
+            Builders<ShareDocument>.Update.Inc(s => s.Opens, 1).Set(s => s.LastOpenedAt, at), cancellationToken: ct);
+}
+
 public sealed class EstateSettingsRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<EstateSettingsDocument>(database, context), IEstateSettingsRepository;
 

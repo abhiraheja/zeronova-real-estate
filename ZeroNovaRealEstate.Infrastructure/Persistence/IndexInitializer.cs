@@ -67,6 +67,25 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                     new CreateIndexOptions { Name = "company_agent_status_created" }),
             ], ct);
 
+            var visits = database.GetCollection<VisitDocument>("re_visits");
+            await visits.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<VisitDocument>(Builders<VisitDocument>.IndexKeys.Ascending(v => v.CompanyId).Ascending(v => v.At),
+                    new CreateIndexOptions { Name = "company_at" }),
+                new CreateIndexModel<VisitDocument>(Builders<VisitDocument>.IndexKeys.Ascending(v => v.Status).Ascending(v => v.Reminded).Ascending(v => v.At),
+                    new CreateIndexOptions { Name = "status_reminded_at" }),
+            ], ct);
+
+            // A share token is unguessable and unique across companies (the public page finds it by token alone).
+            var shares = database.GetCollection<ShareDocument>("re_shares");
+            await shares.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<ShareDocument>(Builders<ShareDocument>.IndexKeys.Ascending(x => x.Token),
+                    new CreateIndexOptions { Name = "token_unique", Unique = true }),
+                new CreateIndexModel<ShareDocument>(Builders<ShareDocument>.IndexKeys.Ascending(x => x.CompanyId).Ascending(x => x.PropertyId),
+                    new CreateIndexOptions { Name = "company_property" }),
+            ], ct);
+
             var localities = database.GetCollection<LocalityDocument>("re_localities");
             await localities.Indexes.CreateOneAsync(new CreateIndexModel<LocalityDocument>(
                 Builders<LocalityDocument>.IndexKeys.Ascending(l => l.CompanyId).Ascending(l => l.Key),

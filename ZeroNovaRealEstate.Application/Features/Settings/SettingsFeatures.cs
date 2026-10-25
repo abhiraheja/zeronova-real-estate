@@ -65,6 +65,8 @@ public sealed class SaveEstateSettingsHandler(IEstateSettingsRepository settings
         row.MatchThreshold = input.MatchThreshold;
         row.DefaultCity = EstateText.Clean(input.DefaultCity);
         row.ReraNumber = EstateText.Clean(input.ReraNumber);
+        row.DealerName = EstateText.Clean(input.DealerName);
+        row.DealerPhone = EstateText.Phone(input.DealerPhone);
         if (isNew)
             await settings.AddAsync(row, ct);
         else
@@ -76,7 +78,7 @@ public sealed class SaveEstateSettingsHandler(IEstateSettingsRepository settings
 internal static class SettingsMapping
 {
     public static EstateSettingsDto ToDto(EstateSettingsDocument s) => new(s.MarlaSqFt, s.KanalSqFt, s.BighaSqFt, s.BiswaSqFt, s.KathaSqFt,
-        s.BudgetTolerancePercent, s.SaleFreshDays, s.RentFreshDays, s.MatchThreshold, s.DefaultCity, s.ReraNumber);
+        s.BudgetTolerancePercent, s.SaleFreshDays, s.RentFreshDays, s.MatchThreshold, s.DefaultCity, s.ReraNumber, s.DealerName, s.DealerPhone);
 
     public static CustomFieldDto ToDto(CustomFieldDocument f) => new(f.Id, f.Key, f.Label, f.Kind, f.Options, f.PropertyTypes, f.Filterable);
 }

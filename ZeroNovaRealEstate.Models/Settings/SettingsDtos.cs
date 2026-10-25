@@ -5,7 +5,8 @@ namespace ZeroNovaRealEstate.Models.Settings;
 
 /// <summary>
 /// The dealer's settings (design 4.2): the local size of the regional units, how far over budget to match, when a
-/// property goes stale, the match threshold, the default city and the RERA number.
+/// property goes stale, the match threshold, the default city, the RERA number, and the name and phone customers see on
+/// a shared property.
 /// </summary>
 public sealed record EstateSettingsDto(
     decimal MarlaSqFt,
@@ -18,7 +19,9 @@ public sealed record EstateSettingsDto(
     int RentFreshDays,
     int MatchThreshold,
     string? DefaultCity,
-    string? ReraNumber);
+    string? ReraNumber,
+    string? DealerName,
+    string? DealerPhone);
 
 public sealed record EstateSettingsInput(
     decimal MarlaSqFt,
@@ -31,7 +34,9 @@ public sealed record EstateSettingsInput(
     int RentFreshDays,
     int MatchThreshold,
     string? DefaultCity,
-    string? ReraNumber);
+    string? ReraNumber,
+    string? DealerName = null,
+    string? DealerPhone = null);
 
 public enum CustomFieldKind
 {
