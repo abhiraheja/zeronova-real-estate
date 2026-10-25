@@ -1,6 +1,11 @@
 # Real Estate — decisions, design and build order
 
-**Status:** draft for the owner's approval, 2026-10-25. Nothing is built yet. Designed fresh for ZeroNova from the
+**Status:** M1–M4 built and deployed to dev (2026-10-26): this service at `property-dev.zrnova.com`, stitched as the graph
+gateway's `RealEstate` subgraph, the P permission codes in Core, and the app's `@zeronova/real-estate` screens (committed,
+not yet pushed). Changes from the draft while building: matching runs inside the save (no queue); site visits use the
+requirement codes (PRQV / PRQM) rather than codes of their own; the owner's availability check and the customer's
+messages are ready wa.me drafts — automatic WhatsApp template replies are later; a requirement belongs to a lead, picked
+from the leads or opened from the lead page. M5 is not started. Designed fresh for ZeroNova from the
 dealer's problem and ZeroNova's own services (not from Saarvix).
 
 Input: the property dealer apps research (`zeronova-app/reports/Property dealer apps research.md` — Sell.Do,
