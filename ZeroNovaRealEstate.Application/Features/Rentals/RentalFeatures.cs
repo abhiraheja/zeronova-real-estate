@@ -62,8 +62,12 @@ public sealed class SaveTenancyHandler(ITenancyRepository tenancies, IPropertyRe
         if (isNew && await tenancies.GetDocuments(t => t.PropertyId == property.Id && t.Status == TenancyStatus.Active).AnyAsync(ct))
             throw new ValidatorException($"{property.Code} already has an active tenancy. End it first.");
 
-        var landlords = (input.LandlordIds is { Count: > 0 } l ? l : deal?.SellerIds is { Count: > 0 } ds ? ds : property.Owners.Select(o => o.PartyId)).Distinct().ToList();
-        var tenants = (input.TenantIds is { Count: > 0 } t ? t : deal?.BuyerIds ?? []).Distinct().ToList();
+        // Empty lists keep what an existing tenancy has (the app shows names only), else take the deal's or the owners.
+        var landlords = (input.LandlordIds is { Count: > 0 } l ? l
+            : row?.LandlordIds is { Count: > 0 } rl ? rl
+            : deal?.SellerIds is { Count: > 0 } ds ? ds
+            : property.Owners.Select(o => o.PartyId)).Distinct().ToList();
+        var tenants = (input.TenantIds is { Count: > 0 } t ? t : row?.TenantIds is { Count: > 0 } rt ? rt : deal?.BuyerIds ?? []).Distinct().ToList();
         if (tenants.Count == 0)
             throw new ValidatorException("Add the tenant.");
         if (landlords.Intersect(tenants).Any())

@@ -145,6 +145,14 @@ public sealed class MoneyTests(MongoFixture mongo) : IAsyncLifetime
         await Assert.ThrowsAsync<ValidatorException>(() => host.SendAsMember(CompanyA, "user-other", ["PRNM"], new GetTenancyQuery(tenancy.Id)));
         Assert.Empty(await host.SendAsMember(CompanyA, "user-other", ["PRNM"], new GetTenanciesQuery(null, null)));
 
+        // An edit with no parties keeps the tenancy's own.
+        var edited = await host.SendAs(CompanyA, new SaveTenancyCommand(tenancy.Id, new TenancyInput
+        {
+            PropertyId = flat.Id, Rent = 25000m, Deposit = 60000m, StartDate = start, Months = 11, RentDueDay = 1, EscalationPercent = 5,
+        }));
+        Assert.Equal(["Anjali Sharma"], edited.TenantNames);
+        Assert.Equal(60000m, edited.Deposit);
+
         var renewed = await host.SendAs(CompanyA, new RenewTenancyCommand(tenancy.Id, 11, null));
         Assert.Equal((26250m, DateOnly.ParseExact(tenancy.EndDate, "yyyy-MM-dd", CultureInfo.InvariantCulture).AddDays(1).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)),
             (renewed.Rent, renewed.StartDate));
