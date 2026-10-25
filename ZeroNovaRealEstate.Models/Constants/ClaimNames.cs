@@ -51,4 +51,20 @@ public static class EstatePermissions
     public const string RequirementManage = "PRQM";
 
     public const string SettingsManage = "PSEM";
+
+    /// <summary>Every deal (a manager); without it a member sees only the deals they are the agent of (M3).</summary>
+    public const string DealView = "PDLV";
+
+    /// <summary>Make and move deals, tick transfer steps, print agreements — one's own deals, or anyone's with <see cref="DealView"/>.</summary>
+    public const string DealManage = "PDLM";
+
+    /// <summary>Brokerage: what is earned, invoiced, received and due (M4). Staff without it never see it.</summary>
+    public const string BrokerageView = "PBRV";
+
+    public const string BrokerageManage = "PBRM";
+
+    /// <summary>Tenancies, rents and renewals (M4).</summary>
+    public const string RentalView = "PRNV";
+
+    public const string RentalManage = "PRNM";
 }

@@ -187,3 +187,77 @@ public sealed class ShareDocument : CompanyDocumentBase
     [BsonElement("opens")] public int Opens { get; set; }
     [BsonElement("lastOpenedAt")] public DateTime? LastOpenedAt { get; set; }
 }
+
+public sealed class DealPaymentModel
+{
+    [BsonElement("mode")] [BsonRepresentation(BsonType.String)] public Models.Deals.PaymentMode Mode { get; set; }
+    [BsonElement("amount")] public decimal Amount { get; set; }
+    [BsonElement("reference")] public string? Reference { get; set; }
+    [BsonElement("bank")] public string? Bank { get; set; }
+    [BsonElement("date")] public string? Date { get; set; }
+    [BsonElement("payerId")] public string? PayerPartyId { get; set; }
+}
+
+public sealed class DealInstalmentModel
+{
+    [BsonElement("mode")] [BsonRepresentation(BsonType.String)] public Models.Deals.PaymentMode? Mode { get; set; }
+    [BsonElement("amount")] public decimal Amount { get; set; }
+    [BsonElement("dueDate")] public string? DueDate { get; set; }
+}
+
+public sealed class ChecklistItemModel
+{
+    [BsonElement("key")] public required string Key { get; set; }
+    [BsonElement("label")] public required string Label { get; set; }
+    [BsonElement("done")] public bool Done { get; set; }
+    [BsonElement("date")] public string? Date { get; set; }
+    [BsonElement("note")] public string? Note { get; set; }
+}
+
+public sealed class WitnessModel
+{
+    [BsonElement("name")] public required string Name { get; set; }
+    [BsonElement("address")] public string? Address { get; set; }
+}
+
+/// <summary>A deal on a property (M3): parties on both sides, money, the transfer checklist and the agreement's details.</summary>
+[DocumentName("re_deals")]
+public sealed class DealDocument : CompanyDocumentBase
+{
+    [BsonElement("code")] public required string Code { get; set; }
+    [BsonElement("propertyId")] public required string PropertyId { get; set; }
+    [BsonElement("kind")] [BsonRepresentation(BsonType.String)] public PropertyPurpose Kind { get; set; }
+    [BsonElement("stage")] [BsonRepresentation(BsonType.String)] public Models.Deals.DealStage Stage { get; set; } = Models.Deals.DealStage.Offer;
+    [BsonElement("sellerIds")] public List<string> SellerIds { get; set; } = [];
+    [BsonElement("buyerIds")] public List<string> BuyerIds { get; set; } = [];
+    [BsonElement("requirementId")] public string? RequirementId { get; set; }
+    [BsonElement("leadId")] public string? LeadId { get; set; }
+    [BsonElement("agentId")] public required string AgentId { get; set; }
+    [BsonElement("price")] public decimal Price { get; set; }
+    [BsonElement("earnestPercent")] public decimal? EarnestPercent { get; set; }
+    [BsonElement("payments")] public List<DealPaymentModel> Payments { get; set; } = [];
+    [BsonElement("schedule")] public List<DealInstalmentModel> Schedule { get; set; } = [];
+    [BsonElement("finalDate")] public string? FinalDate { get; set; }
+    [BsonElement("transferKind")] [BsonRepresentation(BsonType.String)] public Models.Deals.TransferKind TransferKind { get; set; }
+    [BsonElement("checklist")] public List<ChecklistItemModel> Checklist { get; set; } = [];
+    [BsonElement("executionPlace")] public string? ExecutionPlace { get; set; }
+    [BsonElement("executionDate")] public string? ExecutionDate { get; set; }
+    [BsonElement("witnesses")] public List<WitnessModel> Witnesses { get; set; } = [];
+    [BsonElement("propertyDescription")] public string? PropertyDescription { get; set; }
+    [BsonElement("titleNote")] public string? TitleNote { get; set; }
+    [BsonElement("inclusions")] public List<string> Inclusions { get; set; } = [];
+    [BsonElement("terms")] public List<string> Terms { get; set; } = [];
+    [BsonElement("notes")] public string? Notes { get; set; }
+    [BsonElement("completedAt")] public DateTime? CompletedAt { get; set; }
+    [BsonElement("cancelReason")] public string? CancelReason { get; set; }
+}
+
+/// <summary>The dealer's own agreement template (D12): a Word file with <c>{{placeholders}}</c>, kept as bytes.</summary>
+[DocumentName("re_agreement_templates")]
+public sealed class AgreementTemplateDocument : CompanyDocumentBase
+{
+    [BsonElement("name")] public required string Name { get; set; }
+    [BsonElement("kind")] [BsonRepresentation(BsonType.String)] public Models.Deals.AgreementKind Kind { get; set; }
+    [BsonElement("docx")] public required byte[] Docx { get; set; }
+    [BsonElement("placeholders")] public List<string> Placeholders { get; set; } = [];
+}

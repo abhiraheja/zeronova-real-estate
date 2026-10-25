@@ -377,6 +377,7 @@ public sealed record PropertyDto(
     string? Notes,
     IReadOnlyList<CustomValueDto> Custom,
     IReadOnlyList<PropertyOwnerDto> Owners,
+    IReadOnlyList<Deals.OwnershipRecordDto> History,
     int OpenMatches,
     DateTimeOffset? CreatedAt);
 

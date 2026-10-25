@@ -64,6 +64,7 @@ public sealed class PropertyMapper(
         [.. p.Custom.Select(kv => new CustomValueDto(kv.Key, labels.GetValueOrDefault(kv.Key) ?? kv.Key, kv.Value))],
         [.. p.Owners.Select(o => new PropertyOwnerDto(o.PartyId, owners.GetValueOrDefault(o.PartyId)?.Name ?? "—",
             seesOwners ? owners.GetValueOrDefault(o.PartyId)?.Phone : null, o.SharePercent, o.Holding))],
+        [.. p.History.Select(h => new Models.Deals.OwnershipRecordDto(h.FromNames, h.ToNames, h.Kind, h.Date, h.Note, h.DealId))],
         openMatches, p.CreatedBy?.ChangedDate);
 }
 

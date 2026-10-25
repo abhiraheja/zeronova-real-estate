@@ -21,6 +21,8 @@ public sealed class EstateScope(IRequestContext context)
 
     public bool SeesAllRequirements => Has(EstatePermissions.RequirementView);
 
+    public bool SeesAllDeals => Has(EstatePermissions.DealView);
+
     /// <summary>The caller's ZeroNova user id (the agent id on requirements and matches).</summary>
     public string UserId => context.UserId ?? context.AuthUserId ?? throw new ValidatorException("Your account is not set up yet. Sign in again.");
 
@@ -71,7 +73,12 @@ public static partial class EstateText
         clock.GetUtcNow().ToOffset(TimeSpan.FromMinutes(330)).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 
     /// <summary>₹1,25,00,000 in the Indian grouping, as dealers write it.</summary>
-    public static string Rupees(decimal amount) => "₹" + amount.ToString("#,##,##,##0.##", CultureInfo.InvariantCulture);
+    public static string Rupees(decimal amount)
+    {
+        var whole = (long)Math.Truncate(amount);
+        var paise = Math.Round(Math.Abs(amount - whole) * 100m, 0);
+        return "₹" + IndianWords.Group(whole) + (paise > 0 ? "." + paise.ToString("00", CultureInfo.InvariantCulture) : string.Empty);
+    }
 
     [GeneratedRegex(@"\s+")]
     private static partial Regex Spaces();

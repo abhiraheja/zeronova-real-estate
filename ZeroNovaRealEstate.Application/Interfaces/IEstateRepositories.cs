@@ -44,6 +44,10 @@ public interface IShareRepository : ICompanyRepositoryBase<ShareDocument>
     Task RecordOpenAsync(string shareId, string companyId, DateTime at, CancellationToken ct = default);
 }
 
+public interface IDealRepository : ICompanyRepositoryBase<DealDocument>;
+
+public interface IAgreementTemplateRepository : ICompanyRepositoryBase<AgreementTemplateDocument>;
+
 public interface IEstateSettingsRepository : ICompanyRepositoryBase<EstateSettingsDocument>;
 
 public interface ICustomFieldRepository : ICompanyRepositoryBase<CustomFieldDocument>;

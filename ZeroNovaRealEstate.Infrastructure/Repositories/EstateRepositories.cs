@@ -93,6 +93,12 @@ public sealed class ShareRepository(IMongoDatabase database, IRequestContext con
             Builders<ShareDocument>.Update.Inc(s => s.Opens, 1).Set(s => s.LastOpenedAt, at), cancellationToken: ct);
 }
 
+public sealed class DealRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<DealDocument>(database, context), IDealRepository;
+
+public sealed class AgreementTemplateRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<AgreementTemplateDocument>(database, context), IAgreementTemplateRepository;
+
 public sealed class EstateSettingsRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<EstateSettingsDocument>(database, context), IEstateSettingsRepository;
 

@@ -86,6 +86,17 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                     new CreateIndexOptions { Name = "company_property" }),
             ], ct);
 
+            var deals = database.GetCollection<DealDocument>("re_deals");
+            await deals.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<DealDocument>(Builders<DealDocument>.IndexKeys.Ascending(d => d.CompanyId).Ascending(d => d.Code),
+                    new CreateIndexOptions { Name = "company_code_unique", Unique = true }),
+                new CreateIndexModel<DealDocument>(Builders<DealDocument>.IndexKeys.Ascending(d => d.CompanyId).Ascending(d => d.PropertyId),
+                    new CreateIndexOptions { Name = "company_property" }),
+                new CreateIndexModel<DealDocument>(Builders<DealDocument>.IndexKeys.Ascending(d => d.CompanyId).Ascending(d => d.Stage),
+                    new CreateIndexOptions { Name = "company_stage" }),
+            ], ct);
+
             var localities = database.GetCollection<LocalityDocument>("re_localities");
             await localities.Indexes.CreateOneAsync(new CreateIndexModel<LocalityDocument>(
                 Builders<LocalityDocument>.IndexKeys.Ascending(l => l.CompanyId).Ascending(l => l.Key),

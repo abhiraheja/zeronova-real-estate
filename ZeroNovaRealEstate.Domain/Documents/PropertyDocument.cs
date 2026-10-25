@@ -35,6 +35,23 @@ public sealed class OwnerModel
     public HoldingKind Holding { get; set; }
 }
 
+/// <summary>One change of owners (D8): from whom to whom, how, when — from a completed deal, or entered from the papers.</summary>
+public sealed class OwnershipRecordModel
+{
+    [BsonElement("from")] public List<string> FromNames { get; set; } = [];
+    [BsonElement("to")] public List<string> ToNames { get; set; } = [];
+    [BsonElement("fromIds")] public List<string> FromPartyIds { get; set; } = [];
+    [BsonElement("toIds")] public List<string> ToPartyIds { get; set; } = [];
+
+    [BsonElement("kind")]
+    [BsonRepresentation(BsonType.String)]
+    public Models.Deals.TransferKind Kind { get; set; }
+
+    [BsonElement("date")] public string? Date { get; set; }
+    [BsonElement("note")] public string? Note { get; set; }
+    [BsonElement("dealId")] public string? DealId { get; set; }
+}
+
 /// <summary>
 /// A property of the dealer's stock (design 4.1). One record per property, shared by the whole team, with a status and
 /// a last-confirmed time everyone sees (D6). <see cref="SizeSqFt"/> and <see cref="PriceValue"/> are the numbers search
@@ -153,6 +170,9 @@ public sealed class PropertyDocument : CompanyDocumentBase
     [BsonElement("custom")] public Dictionary<string, string> Custom { get; set; } = [];
 
     [BsonElement("owners")] public List<OwnerModel> Owners { get; set; } = [];
+
+    /// <summary>The chain of owners, oldest first (D8).</summary>
+    [BsonElement("history")] public List<OwnershipRecordModel> History { get; set; } = [];
 
     /// <summary>Owners' phone digits, kept for the duplicate check (design 4.6).</summary>
     [BsonElement("ownerPhones")] public List<string> OwnerPhones { get; set; } = [];

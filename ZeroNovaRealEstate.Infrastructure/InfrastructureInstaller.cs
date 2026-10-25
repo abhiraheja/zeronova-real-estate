@@ -37,6 +37,8 @@ public static class InfrastructureInstaller
         services.AddScoped<ICounterRepository, CounterRepository>();
         services.AddScoped<IVisitRepository, VisitRepository>();
         services.AddScoped<IShareRepository, ShareRepository>();
+        services.AddScoped<IDealRepository, DealRepository>();
+        services.AddScoped<IAgreementTemplateRepository, AgreementTemplateRepository>();
         services.AddHostedService<IndexInitializer>();
         // After the indexes (hosted services start in order): holds that ran out go back to available.
         services.AddHostedService<HoldReleaseJob>();
