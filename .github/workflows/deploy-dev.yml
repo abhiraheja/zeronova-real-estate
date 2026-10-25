@@ -1,12 +1,12 @@
 # ================================================
-# DEV — ZeroNovaRealEstate API (Tutor) → the dev server
+# DEV — ZeroNovaRealEstate API (Real Estate) → the dev server
 # ================================================
 #   Build  -> GitHub-hosted runner. ZeroNovaPackages is a local project reference
 #             (../ZeroNovaPackages), so it is cloned and passed as the
 #             `zeronovapackages` build context the Dockerfile copies from.
 #             Image goes to the wealthgrow-qa Artifact Registry.
 #   Deploy -> SSH into the dev server (wealthgrowai-dev), bump
-#             EVENT_ZERONOVA_STUDY_VERSION in ~/server/.env and
+#             EVENT_ZERONOVA_REAL_STATE_VERSION in ~/server/.env and
 #             `docker compose up -d zeronova-real-estate`.
 #
 # Connection details live on the 'saarvix-dev' GitHub Environment — see the
@@ -34,7 +34,7 @@ jobs:
       deploy_mode: ssh
       service_name: zeronova-real-estate
       image_name: zeronova-real-estate
-      env_var_key: EVENT_ZERONOVA_STUDY_VERSION
+      env_var_key: EVENT_ZERONOVA_REAL_STATE_VERSION
       dockerfile_path: ZeroNovaRealEstate.Api/Dockerfile
       # Public NuGet only; ZeroNova's own packages come from the build context below.
       package_feed: none

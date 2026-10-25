@@ -23,6 +23,8 @@ public sealed class EstateScope(IRequestContext context)
 
     public bool SeesAllDeals => Has(EstatePermissions.DealView);
 
+    public bool SeesAllRentals => Has(EstatePermissions.RentalView);
+
     /// <summary>The caller's ZeroNova user id (the agent id on requirements and matches).</summary>
     public string UserId => context.UserId ?? context.AuthUserId ?? throw new ValidatorException("Your account is not set up yet. Sign in again.");
 

@@ -97,6 +97,23 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                     new CreateIndexOptions { Name = "company_stage" }),
             ], ct);
 
+            var brokerages = database.GetCollection<BrokerageDocument>("re_brokerages");
+            await brokerages.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<BrokerageDocument>(Builders<BrokerageDocument>.IndexKeys.Ascending(b => b.CompanyId).Ascending(b => b.InvoiceNo),
+                    new CreateIndexOptions { Name = "company_invoice_unique", Unique = true }),
+                new CreateIndexModel<BrokerageDocument>(Builders<BrokerageDocument>.IndexKeys.Ascending(b => b.CompanyId).Ascending(b => b.DealId),
+                    new CreateIndexOptions { Name = "company_deal" }),
+            ], ct);
+            var tenancies = database.GetCollection<TenancyDocument>("re_tenancies");
+            await tenancies.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<TenancyDocument>(Builders<TenancyDocument>.IndexKeys.Ascending(t => t.CompanyId).Ascending(t => t.Status).Ascending(t => t.EndDate),
+                    new CreateIndexOptions { Name = "company_status_end" }),
+                new CreateIndexModel<TenancyDocument>(Builders<TenancyDocument>.IndexKeys.Ascending(t => t.Status),
+                    new CreateIndexOptions { Name = "status" }),
+            ], ct);
+
             var localities = database.GetCollection<LocalityDocument>("re_localities");
             await localities.Indexes.CreateOneAsync(new CreateIndexModel<LocalityDocument>(
                 Builders<LocalityDocument>.IndexKeys.Ascending(l => l.CompanyId).Ascending(l => l.Key),

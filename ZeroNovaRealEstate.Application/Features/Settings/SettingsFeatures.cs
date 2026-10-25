@@ -43,6 +43,10 @@ public sealed class SaveEstateSettingsValidator : AbstractValidator<SaveEstateSe
         RuleFor(x => x.Input.RentFreshDays).InclusiveBetween(1, 365);
         RuleFor(x => x.Input.MatchThreshold).InclusiveBetween(0, 100);
         RuleFor(x => x.Input.ReraNumber).MaximumLength(60);
+        RuleFor(x => x.Input.SaleBrokeragePercent).InclusiveBetween(0, 10);
+        RuleFor(x => x.Input.RentBrokerageMonths).InclusiveBetween(0, 6);
+        RuleFor(x => x.Input.Gstin).Matches("^[0-9]{2}[A-Za-z0-9]{13}$").When(x => !string.IsNullOrWhiteSpace(x.Input.Gstin))
+            .WithMessage("A GSTIN has 15 characters, starting with the state code.");
     }
 }
 
@@ -67,6 +71,11 @@ public sealed class SaveEstateSettingsHandler(IEstateSettingsRepository settings
         row.ReraNumber = EstateText.Clean(input.ReraNumber);
         row.DealerName = EstateText.Clean(input.DealerName);
         row.DealerPhone = EstateText.Phone(input.DealerPhone);
+        row.GstRegistered = input.GstRegistered;
+        row.Gstin = EstateText.Clean(input.Gstin)?.ToUpperInvariant();
+        row.DealerAddress = EstateText.Clean(input.DealerAddress);
+        row.SaleBrokeragePercent = input.SaleBrokeragePercent;
+        row.RentBrokerageMonths = input.RentBrokerageMonths;
         if (isNew)
             await settings.AddAsync(row, ct);
         else
@@ -78,7 +87,8 @@ public sealed class SaveEstateSettingsHandler(IEstateSettingsRepository settings
 internal static class SettingsMapping
 {
     public static EstateSettingsDto ToDto(EstateSettingsDocument s) => new(s.MarlaSqFt, s.KanalSqFt, s.BighaSqFt, s.BiswaSqFt, s.KathaSqFt,
-        s.BudgetTolerancePercent, s.SaleFreshDays, s.RentFreshDays, s.MatchThreshold, s.DefaultCity, s.ReraNumber, s.DealerName, s.DealerPhone);
+        s.BudgetTolerancePercent, s.SaleFreshDays, s.RentFreshDays, s.MatchThreshold, s.DefaultCity, s.ReraNumber, s.DealerName, s.DealerPhone,
+        s.GstRegistered, s.Gstin, s.DealerAddress, s.SaleBrokeragePercent, s.RentBrokerageMonths);
 
     public static CustomFieldDto ToDto(CustomFieldDocument f) => new(f.Id, f.Key, f.Label, f.Kind, f.Options, f.PropertyTypes, f.Filterable);
 }

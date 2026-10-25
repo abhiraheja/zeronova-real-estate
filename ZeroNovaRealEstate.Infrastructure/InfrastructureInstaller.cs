@@ -39,10 +39,13 @@ public static class InfrastructureInstaller
         services.AddScoped<IShareRepository, ShareRepository>();
         services.AddScoped<IDealRepository, DealRepository>();
         services.AddScoped<IAgreementTemplateRepository, AgreementTemplateRepository>();
+        services.AddScoped<IBrokerageRepository, BrokerageRepository>();
+        services.AddScoped<ITenancyRepository, TenancyRepository>();
         services.AddHostedService<IndexInitializer>();
         // After the indexes (hosted services start in order): holds that ran out go back to available.
         services.AddHostedService<HoldReleaseJob>();
         services.AddHostedService<VisitReminderJob>();
+        services.AddHostedService<RentReminderJob>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(configuration.GetSection(DocumentsOptions.SectionName).Get<DocumentsOptions>() ?? new DocumentsOptions());

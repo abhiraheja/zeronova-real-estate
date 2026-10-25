@@ -99,6 +99,17 @@ public sealed class DealRepository(IMongoDatabase database, IRequestContext cont
 public sealed class AgreementTemplateRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<AgreementTemplateDocument>(database, context), IAgreementTemplateRepository;
 
+public sealed class BrokerageRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<BrokerageDocument>(database, context), IBrokerageRepository;
+
+public sealed class TenancyRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<TenancyDocument>(database, context), ITenancyRepository
+{
+    // Deliberately across companies — see the interface.
+    public async Task<IReadOnlyList<TenancyDocument>> ActiveAnyTenantAsync(int skip, int take, CancellationToken ct = default) =>
+        await Collection.Find(t => t.Status == Models.Money.TenancyStatus.Active && !t.IsDeleted).SortBy(t => t.Id).Skip(skip).Limit(take).ToListAsync(ct);
+}
+
 public sealed class EstateSettingsRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<EstateSettingsDocument>(database, context), IEstateSettingsRepository;
 

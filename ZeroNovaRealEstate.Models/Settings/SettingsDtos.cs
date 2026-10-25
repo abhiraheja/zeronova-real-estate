@@ -21,7 +21,12 @@ public sealed record EstateSettingsDto(
     string? DefaultCity,
     string? ReraNumber,
     string? DealerName,
-    string? DealerPhone);
+    string? DealerPhone,
+    bool GstRegistered,
+    string? Gstin,
+    string? DealerAddress,
+    decimal SaleBrokeragePercent,
+    decimal RentBrokerageMonths);
 
 public sealed record EstateSettingsInput(
     decimal MarlaSqFt,
@@ -36,7 +41,12 @@ public sealed record EstateSettingsInput(
     string? DefaultCity,
     string? ReraNumber,
     string? DealerName = null,
-    string? DealerPhone = null);
+    string? DealerPhone = null,
+    bool GstRegistered = false,
+    string? Gstin = null,
+    string? DealerAddress = null,
+    decimal SaleBrokeragePercent = 1m,
+    decimal RentBrokerageMonths = 1m);
 
 public enum CustomFieldKind
 {

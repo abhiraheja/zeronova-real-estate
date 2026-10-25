@@ -48,6 +48,14 @@ public interface IDealRepository : ICompanyRepositoryBase<DealDocument>;
 
 public interface IAgreementTemplateRepository : ICompanyRepositoryBase<AgreementTemplateDocument>;
 
+public interface IBrokerageRepository : ICompanyRepositoryBase<BrokerageDocument>;
+
+public interface ITenancyRepository : ICompanyRepositoryBase<TenancyDocument>
+{
+    /// <summary>Active tenancies across companies — the rent reminders' read.</summary>
+    Task<IReadOnlyList<TenancyDocument>> ActiveAnyTenantAsync(int skip, int take, CancellationToken ct = default);
+}
+
 public interface IEstateSettingsRepository : ICompanyRepositoryBase<EstateSettingsDocument>;
 
 public interface ICustomFieldRepository : ICompanyRepositoryBase<CustomFieldDocument>;

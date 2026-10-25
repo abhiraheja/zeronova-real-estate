@@ -1,6 +1,6 @@
 # zeronova-real-estate — local Docker run (the API only; Core and the app run from ../zeronova-core).
 #
-#   docker compose up --build -d        # API http://localhost:5130
+#   docker compose up --build -d        # API http://localhost:5140
 #
 # Prerequisites: `gcloud auth application-default login` (secrets come from Secret Manager, project wealthgrow-qa)
 # and ../ZeroNovaPackages checked out next to this repo. Nothing secret is in this file.
@@ -21,5 +21,5 @@ services:
     volumes:
       - ${HOME}/.config/gcloud/application_default_credentials.json:/secrets/gcp-adc.json:ro
     ports:
-      - "5130:8080"
+      - "5140:8080"
     restart: unless-stopped

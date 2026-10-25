@@ -37,6 +37,11 @@ public static class ApplicationInstaller
         // Deals and agreements (M3).
         services.AddScoped<Features.Deals.DealMapper>();
         services.AddScoped<Features.Agreements.AgreementSource>();
+        // Brokerage and rentals (M4).
+        services.AddScoped<Features.Brokerage.BrokerageMapper>();
+        services.AddScoped<Features.Brokerage.BrokerageBook>();
+        services.AddScoped<Features.Rentals.TenancyMapper>();
+        services.AddScoped<Features.Rentals.RentReminders>();
 
         return services;
     }

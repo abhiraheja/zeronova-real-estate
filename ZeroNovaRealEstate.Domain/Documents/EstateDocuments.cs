@@ -114,6 +114,11 @@ public sealed class EstateSettingsDocument : CompanyDocumentBase
     [BsonElement("reraNumber")] public string? ReraNumber { get; set; }
     [BsonElement("dealerName")] public string? DealerName { get; set; }
     [BsonElement("dealerPhone")] public string? DealerPhone { get; set; }
+    [BsonElement("gstRegistered")] public bool GstRegistered { get; set; }
+    [BsonElement("gstin")] public string? Gstin { get; set; }
+    [BsonElement("dealerAddress")] public string? DealerAddress { get; set; }
+    [BsonElement("saleBrokeragePercent")] public decimal SaleBrokeragePercent { get; set; } = 1m;
+    [BsonElement("rentBrokerageMonths")] public decimal RentBrokerageMonths { get; set; } = 1m;
 }
 
 /// <summary>A field the dealer added (D4).</summary>
@@ -260,4 +265,68 @@ public sealed class AgreementTemplateDocument : CompanyDocumentBase
     [BsonElement("kind")] [BsonRepresentation(BsonType.String)] public Models.Deals.AgreementKind Kind { get; set; }
     [BsonElement("docx")] public required byte[] Docx { get; set; }
     [BsonElement("placeholders")] public List<string> Placeholders { get; set; } = [];
+}
+
+public sealed class BrokerageReceiptModel
+{
+    [BsonElement("amount")] public decimal Amount { get; set; }
+    [BsonElement("mode")] [BsonRepresentation(BsonType.String)] public Models.Deals.PaymentMode Mode { get; set; }
+    [BsonElement("reference")] public string? Reference { get; set; }
+    [BsonElement("date")] public string? Date { get; set; }
+}
+
+/// <summary>One side's brokerage on a deal (D13, M4): reckoned, taxed, invoiced, received.</summary>
+[DocumentName("re_brokerages")]
+public sealed class BrokerageDocument : CompanyDocumentBase
+{
+    [BsonElement("invoiceNo")] public required string InvoiceNo { get; set; }
+    [BsonElement("dealId")] public required string DealId { get; set; }
+    [BsonElement("side")] [BsonRepresentation(BsonType.String)] public Models.Money.BrokerageSide Side { get; set; }
+    [BsonElement("partyId")] public string? PartyId { get; set; }
+    [BsonElement("basis")] [BsonRepresentation(BsonType.String)] public Models.Money.BrokerageBasis Basis { get; set; }
+    [BsonElement("rate")] public decimal Rate { get; set; }
+    [BsonElement("amount")] public decimal Amount { get; set; }
+    [BsonElement("gstPercent")] public decimal GstPercent { get; set; }
+    [BsonElement("tdsPercent")] public decimal TdsPercent { get; set; }
+    [BsonElement("receipts")] public List<BrokerageReceiptModel> Receipts { get; set; } = [];
+    [BsonElement("writtenOff")] public bool WrittenOff { get; set; }
+    [BsonElement("notes")] public string? Notes { get; set; }
+    [BsonElement("createdAt")] public DateTime CreatedAt { get; set; }
+}
+
+public sealed class RentPaymentModel
+{
+    [BsonElement("month")] public required string Month { get; set; }
+    [BsonElement("amount")] public decimal Amount { get; set; }
+    [BsonElement("mode")] [BsonRepresentation(BsonType.String)] public Models.Deals.PaymentMode Mode { get; set; }
+    [BsonElement("reference")] public string? Reference { get; set; }
+    [BsonElement("date")] public string? Date { get; set; }
+}
+
+/// <summary>A tenancy (M4): landlords and tenants, rent and deposit, the term, the rents received, and the reminders sent.</summary>
+[DocumentName("re_tenancies")]
+public sealed class TenancyDocument : CompanyDocumentBase
+{
+    [BsonElement("propertyId")] public required string PropertyId { get; set; }
+    [BsonElement("dealId")] public string? DealId { get; set; }
+    [BsonElement("landlordIds")] public List<string> LandlordIds { get; set; } = [];
+    [BsonElement("tenantIds")] public List<string> TenantIds { get; set; } = [];
+    [BsonElement("rent")] public decimal Rent { get; set; }
+    [BsonElement("deposit")] public decimal? Deposit { get; set; }
+    [BsonElement("maintenance")] public decimal? Maintenance { get; set; }
+    [BsonElement("startDate")] public required string StartDate { get; set; }
+    [BsonElement("months")] public int Months { get; set; }
+    [BsonElement("endDate")] public required string EndDate { get; set; }
+    [BsonElement("rentDueDay")] public int RentDueDay { get; set; }
+    [BsonElement("escalation")] public decimal? EscalationPercent { get; set; }
+    [BsonElement("lockIn")] public int? LockInMonths { get; set; }
+    [BsonElement("notice")] public int? NoticeMonths { get; set; }
+    [BsonElement("status")] [BsonRepresentation(BsonType.String)] public Models.Money.TenancyStatus Status { get; set; } = Models.Money.TenancyStatus.Active;
+    [BsonElement("payments")] public List<RentPaymentModel> Payments { get; set; } = [];
+    [BsonElement("agentId")] public required string AgentId { get; set; }
+    [BsonElement("notes")] public string? Notes { get; set; }
+
+    /// <summary>The months (yyyy-MM) a rent-due bell went for, and whether the renewal bell went.</summary>
+    [BsonElement("remindedMonths")] public List<string> RemindedMonths { get; set; } = [];
+    [BsonElement("renewalReminded")] public bool RenewalReminded { get; set; }
 }
