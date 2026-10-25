@@ -1,0 +1,31 @@
+name: Mirror to abhiraheja
+
+on:
+  push:
+  delete:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: mirror-to-abhiraheja
+  cancel-in-progress: false
+
+jobs:
+  mirror:
+    # abhiraheja wali copy me ye workflow nahi chalega
+    if: github.repository_owner == 'WealthgrowTech'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mirror all branches and tags
+        env:
+          SRC_TOKEN: ${{ github.token }}
+          DST_TOKEN: ${{ secrets.ABHIRAHEJA_MIRROR_TOKEN }}
+          REPO: ${{ github.event.repository.name }}
+        run: |
+          set -e
+          if [ -z "$DST_TOKEN" ]; then echo "Secret ABHIRAHEJA_MIRROR_TOKEN missing"; exit 1; fi
+          git clone --bare "https://x-access-token:${SRC_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" src.git
+          cd src.git
+          git push --prune "https://x-access-token:${DST_TOKEN}@github.com/abhiraheja/${REPO}.git"             '+refs/heads/*:refs/heads/*' '+refs/tags/*:refs/tags/*'

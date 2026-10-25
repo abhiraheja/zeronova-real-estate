@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Leaf project: DTOs, inputs, enums, constants, event payloads and configuration POCOs. References nothing. -->
+
+</Project>

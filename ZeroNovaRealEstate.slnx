@@ -1,0 +1,16 @@
+<Solution>
+  <Project Path="ZeroNovaRealEstate.Models/ZeroNovaRealEstate.Models.csproj" />
+  <Project Path="ZeroNovaRealEstate.Domain/ZeroNovaRealEstate.Domain.csproj" />
+  <Project Path="ZeroNovaRealEstate.Application/ZeroNovaRealEstate.Application.csproj" />
+  <Project Path="ZeroNovaRealEstate.Infrastructure/ZeroNovaRealEstate.Infrastructure.csproj" />
+  <Project Path="ZeroNovaRealEstate.PubSub/ZeroNovaRealEstate.PubSub.csproj" />
+  <Project Path="ZeroNovaRealEstate.Api/ZeroNovaRealEstate.Api.csproj" />
+  <Project Path="ZeroNovaRealEstate.Tests/ZeroNovaRealEstate.Tests.csproj" />
+  <!-- Local project references (../ZeroNovaPackages), listed so they can be edited from here. -->
+  <Folder Name="/ZeroNovaPackages/">
+    <Project Path="../ZeroNovaPackages/ZeroNova-Packages.MediatR/ZeroNova-Packages.MediatR.csproj" />
+    <Project Path="../ZeroNovaPackages/ZeroNova-Packages.Messaging.Abstractions/ZeroNova-Packages.Messaging.Abstractions.csproj" />
+    <Project Path="../ZeroNovaPackages/ZeroNova-Packages.Messaging/ZeroNova-Packages.Messaging.csproj" />
+    <Project Path="../ZeroNovaPackages/ZeroNova-Packages.Security/ZeroNova-Packages.Security.csproj" />
+  </Folder>
+</Solution>

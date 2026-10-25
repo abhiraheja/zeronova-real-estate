@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="MongoDB.Driver.Core.Extensions.DiagnosticSources" Version="3.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../ZeroNovaRealEstate.Application/ZeroNovaRealEstate.Application.csproj" />
+    <ProjectReference Include="../ZeroNovaRealEstate.PubSub/ZeroNovaRealEstate.PubSub.csproj" />
+    <ProjectReference Include="../../ZeroNovaPackages/ZeroNova-Packages.Messaging/ZeroNova-Packages.Messaging.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ZeroNovaRealEstate.Tests" />
+  </ItemGroup>
+
+</Project>

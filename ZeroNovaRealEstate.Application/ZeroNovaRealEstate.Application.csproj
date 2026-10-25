@@ -1,0 +1,21 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <ItemGroup>
+    <PackageReference Include="FluentValidation.DependencyInjectionExtensions" Version="12.1.1" />
+    <PackageReference Include="HotChocolate.AspNetCore" Version="16.2.2" />
+    <PackageReference Include="HotChocolate.Data.MongoDb" Version="16.2.2" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.9" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../ZeroNovaRealEstate.Domain/ZeroNovaRealEstate.Domain.csproj" />
+    <!-- ZeroNova_Packages: local project references to ../ZeroNovaPackages (not published to a feed). -->
+    <ProjectReference Include="../../ZeroNovaPackages/ZeroNova-Packages.Messaging.Abstractions/ZeroNova-Packages.Messaging.Abstractions.csproj" />
+    <ProjectReference Include="../../ZeroNovaPackages/ZeroNova-Packages.Security/ZeroNova-Packages.Security.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="ZeroNovaRealEstate.Tests" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,541 @@
+# ================================================
+# Reusable workflow — Build & Push -> Deploy -> Cleanup
+# Port of pipelines/templates/{build,deploy,cleanup}.yml (Azure DevOps),
+# standardised on Saar-Social's pipelines.
+# Called by deploy-dev.yml / deploy-beta.yml / deploy-prod.yml.
+#
+# Runners:
+#   dev       -> GitHub-hosted ubuntu-latest; deploys over SSH to the dev server
+#   beta/prod -> GitHub-hosted ubuntu-latest
+#
+# Secrets (org- or repo-level):
+#   GCP_SERVICE_ACCOUNT_KEY   JSON key with push/pull on the target registry (dev: wealthgrow-qa)
+#   NUGET_PAT                 Azure Artifacts feed PAT (package_feed: nuget)
+#   PACKAGES_READ_TOKEN       fine-grained PAT, Contents: read-only on the repos named in build_contexts
+#   NPM_PAT                   Azure Artifacts feed PAT (package_feed: npm)
+#   DEPLOY_REPO_TOKEN         GitHub token with contents:write on saarvix-k8s / saarvix-k8s-beta (gke only)
+# Environment secrets (on the 'saarvix-dev' GitHub Environment, deploy_mode 'ssh' only):
+#   SSH_PRIVATE_KEY           private key whose .pub is in the deploy user's ~/.ssh/authorized_keys
+#   SSH_PASSWORD              instead of SSH_PRIVATE_KEY: the deploy user's password (server needs
+#                             PasswordAuthentication yes). Used when set; the key is then not needed.
+#   SSH_USERNAME              optional: the deploy user as a secret; wins over the SSH_USER variable
+# Environment variables (on the 'saarvix-dev' GitHub Environment, deploy_mode 'local' / 'ssh'):
+#   REMOTE_PATH               directory holding docker-compose.yml
+#   REMOTE_ENV_PATH           .env file the compose stack reads
+#   SSH_HOST                  ssh only: public IP of the dev server (not a Cloudflare-proxied name)
+#   SSH_USER                  ssh only: user that owns REMOTE_PATH and can run docker
+#   SSH_PORT                  ssh only: optional, default 22
+#   SSH_KNOWN_HOSTS           ssh only: optional `ssh-keyscan` line; without it the host key is trusted on first use
+#
+# The Build job has no `environment:` on purpose, so it reads org/repo secrets
+# and approval rules fire once, on Deploy. Deploy reads environment secrets
+# first, org/repo secrets second.
+# ================================================
+name: Build & Deploy (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      build_env:
+        description: 'dev | beta | prod'
+        type: string
+        required: true
+      environment:
+        description: 'GitHub Environment for the Deploy job (e.g. saarvix-dev)'
+        type: string
+        required: true
+      deploy_mode:
+        description: "'local' | 'ssh' | 'gke'"
+        type: string
+        default: 'local'
+      deploy_repo:
+        description: 'gke only: saarvix-k8s (prod) / saarvix-k8s-beta'
+        type: string
+        default: ''
+      build_runner:
+        description: 'JSON runs-on value for Build, e.g. "ubuntu-latest" or ["self-hosted","dell-server"]'
+        type: string
+        default: '"ubuntu-latest"'
+      deploy_runner:
+        description: "JSON runs-on value for Deploy + Cleanup. 'local' mode REQUIRES the self-hosted runner on the target box."
+        type: string
+        default: '"ubuntu-latest"'
+      service_name:
+        description: 'docker compose service and apps/<service_name>.yaml in the deploy repo'
+        type: string
+        required: true
+      image_name:
+        type: string
+        required: true
+      env_var_key:
+        description: 'key in the dev server .env that holds this service image tag'
+        type: string
+        required: true
+      dockerfile_path:
+        type: string
+        required: true
+      package_feed:
+        description: "Private feed config written before docker build: 'nuget' | 'npm' | 'none'"
+        type: string
+        default: 'nuget'
+      build_args:
+        description: 'Extra docker build args, one KEY=VALUE per line'
+        type: string
+        default: ''
+      gcp_registry:
+        description: 'Override the target registry, e.g. asia-south2-docker.pkg.dev/<project>/<repo>. Empty = the saarvix-499809 default for build_env.'
+        type: string
+        default: ''
+      build_contexts:
+        description: >-
+          Extra named Docker build contexts from other repos, one `name=owner/repo@ref` per line.
+          Each repo is cloned (read-only, PACKAGES_READ_TOKEN) outside the build context and passed
+          as `--build-context name=<clone>` — for source-level project references such as
+          ../ZeroNovaPackages.
+        type: string
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  # ================================================
+  # BUILD & PUSH
+  # ================================================
+  build:
+    name: '🔨 Build & Push Docker Image'
+    runs-on: ${{ fromJSON(inputs.build_runner) }}
+    outputs:
+      image_tag: ${{ steps.versioning.outputs.IMAGE_TAG }}
+      gcp_registry: ${{ steps.registry.outputs.GCP_REGISTRY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # ----------------------------------------
+      # Generate version tag
+      # ----------------------------------------
+      - name: '🏷️ Generate Version Tag'
+        id: versioning
+        env:
+          BUILD_ENV: ${{ inputs.build_env }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          set -euo pipefail
+
+          # Normalize build_env (lowercase) so prod/PROD/PRODUCTION all work
+          ENV_LC=$(echo "${BUILD_ENV}" | tr '[:upper:]' '[:lower:]')
+
+          case "${ENV_LC}" in
+            prod|production) PREFIX="PRODUCTION" ;;
+            beta)            PREFIX="BETA" ;;
+            dev|development) PREFIX="DEV" ;;
+            *) echo "❌ Unknown build_env: ${BUILD_ENV}"; exit 1 ;;
+          esac
+
+          DATE=$(TZ='Asia/Kolkata' date +'%Y%m%d')
+          SEQ=$(printf "%02d" $((RUN_NUMBER % 100)))
+          IMAGE_TAG="${PREFIX}.${DATE}.${SEQ}"
+
+          echo "IMAGE_TAG=${IMAGE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "ENV_LC=${ENV_LC}" >> "$GITHUB_OUTPUT"
+          echo "🏷️ Image tag: ${IMAGE_TAG}"
+
+      # ----------------------------------------
+      # Generate nuget.config with PAT
+      # ----------------------------------------
+      - name: '📦 Prepare NuGet Config'
+        if: inputs.package_feed == 'nuget'
+        env:
+          NUGET_PAT: ${{ secrets.NUGET_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NUGET_PAT}" ]; then echo "❌ Secret NUGET_PAT missing"; exit 1; fi
+          cat > "$GITHUB_WORKSPACE/nuget.config" << NUGETEOF
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <packageSources>
+              <clear />
+              <add key="SaarvixPackages" value="https://pkgs.dev.azure.com/avdesignworks/Saarvix/_packaging/SaarvixPackages/nuget/v3/index.json" />
+              <add key="nuget.org" value="https://api.nuget.org/v3/index.json" />
+            </packageSources>
+            <packageSourceCredentials>
+              <SaarvixPackages>
+                <add key="Username" value="docker" />
+                <add key="ClearTextPassword" value="${NUGET_PAT}" />
+              </SaarvixPackages>
+            </packageSourceCredentials>
+            <packageSourceMapping>
+              <packageSource key="nuget.org">
+                <package pattern="*" />
+              </packageSource>
+              <packageSource key="SaarvixPackages">
+                <package pattern="Saar_Packages.*" />
+              </packageSource>
+            </packageSourceMapping>
+          </configuration>
+          NUGETEOF
+          echo "✅ nuget.config generated"
+
+      # ----------------------------------------
+      # Generate .npmrc with PAT (Saarvix private npm feed)
+      # Dockerfile copies .npmrc* into the build stage.
+      # ----------------------------------------
+      - name: '📦 Prepare npm Config'
+        if: inputs.package_feed == 'npm'
+        env:
+          NPM_PAT: ${{ secrets.NPM_PAT }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NPM_PAT}" ]; then echo "❌ Secret NPM_PAT missing"; exit 1; fi
+          cat > "$GITHUB_WORKSPACE/.npmrc" << NPMEOF
+          registry=https://registry.npmjs.org/
+          @saarvix:registry=https://pkgs.dev.azure.com/avdesignworks/Saarvix/_packaging/SaarvixPackages/npm/registry/
+          //pkgs.dev.azure.com/avdesignworks/Saarvix/_packaging/SaarvixPackages/npm/registry/:_authToken=${NPM_PAT}
+          //pkgs.dev.azure.com/avdesignworks/Saarvix/_packaging/SaarvixPackages/npm/:_authToken=${NPM_PAT}
+          always-auth=true
+          NPMEOF
+          echo "✅ .npmrc generated"
+
+      # ----------------------------------------
+      # Set GCP Registry based on environment
+      # ----------------------------------------
+      - name: '🎯 Set Target GCP Registry'
+        id: registry
+        env:
+          ENV_LC: ${{ steps.versioning.outputs.ENV_LC }}
+          REGISTRY_OVERRIDE: ${{ inputs.gcp_registry }}
+        run: |
+          if [ -n "$REGISTRY_OVERRIDE" ]; then
+            GCP_REGISTRY="${REGISTRY_OVERRIDE%/}"
+          elif [ "$ENV_LC" = "prod" ] || [ "$ENV_LC" = "production" ]; then
+            GCP_REGISTRY="asia-south2-docker.pkg.dev/saarvix-499809/saarvix-registry"
+          else
+            GCP_REGISTRY="asia-south2-docker.pkg.dev/saarvix-499809/saarvix-dev-registry"
+          fi
+          echo "GCP_REGISTRY=${GCP_REGISTRY}" >> "$GITHUB_OUTPUT"
+          echo "REGISTRY_HOST=${GCP_REGISTRY%%/*}" >> "$GITHUB_OUTPUT"
+          echo "🎯 Target GCP Registry: ${GCP_REGISTRY}"
+
+      # ----------------------------------------
+      # GCP Auth + Docker Build + Push
+      # ----------------------------------------
+      # ----------------------------------------
+      # Sibling repos as named build contexts (local project references)
+      # ----------------------------------------
+      - name: '📥 Fetch build-context repos'
+        id: contexts
+        if: inputs.build_contexts != ''
+        env:
+          BUILD_CONTEXTS: ${{ inputs.build_contexts }}
+          PACKAGES_READ_TOKEN: ${{ secrets.PACKAGES_READ_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [ -z "$PACKAGES_READ_TOKEN" ]; then echo "❌ Secret PACKAGES_READ_TOKEN missing"; exit 1; fi
+          # Token goes in as an http header, never into the clone URL or .git/config.
+          AUTH="Authorization: basic $(printf 'x-access-token:%s' "$PACKAGES_READ_TOKEN" | base64 -w0)"
+          ARGS=""
+          while IFS= read -r line; do
+            line="$(echo "$line" | xargs)"; [ -n "$line" ] || continue
+            name="${line%%=*}"; spec="${line#*=}"; repo="${spec%@*}"; ref="main"
+            [ "$spec" != "$repo" ] && ref="${spec##*@}"
+            dir="$RUNNER_TEMP/contexts/${repo##*/}"
+            git -c http.extraHeader="$AUTH" clone --quiet --depth 1 --branch "$ref" "https://github.com/${repo}.git" "$dir"
+            echo "📦 $name ← $repo@$ref ($(git -C "$dir" rev-parse --short HEAD))"
+            ARGS="$ARGS --build-context $name=$dir"
+          done <<< "$BUILD_CONTEXTS"
+          echo "args=${ARGS# }" >> "$GITHUB_OUTPUT"
+
+      - name: '🐳 Build & Push to GCP'
+        env:
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          REGISTRY_HOST: ${{ steps.registry.outputs.REGISTRY_HOST }}
+          IMAGE: ${{ steps.registry.outputs.GCP_REGISTRY }}/${{ inputs.image_name }}:${{ steps.versioning.outputs.IMAGE_TAG }}
+          DOCKERFILE_PATH: ${{ inputs.dockerfile_path }}
+          BUILD_ARGS: ${{ inputs.build_args }}
+          CONTEXT_ARGS: ${{ steps.contexts.outputs.args }}
+        run: |
+          set -euo pipefail
+
+          # Piped straight in, never written to /tmp: on a self-hosted runner
+          # (Dell Server) a key file left by a failed login stays on disk for
+          # the next job — and the next person — to find.
+          printf '%s' "$GCP_SERVICE_ACCOUNT_KEY" | docker login \
+            -u _json_key \
+            --password-stdin \
+            "${REGISTRY_HOST}"
+          echo "✅ GCP Auth successful"
+
+          ARGS=()
+          while IFS= read -r line; do
+            [ -n "$line" ] && ARGS+=(--build-arg "$line") && echo "🔧 build-arg: $line"
+          done <<< "$BUILD_ARGS"
+
+          # shellcheck disable=SC2086  # CONTEXT_ARGS is a word list by construction
+          docker build ${ARGS[@]+"${ARGS[@]}"} $CONTEXT_ARGS -t "$IMAGE" -f "$DOCKERFILE_PATH" "$GITHUB_WORKSPACE"
+          echo "✅ Built: $IMAGE"
+
+          docker push "$IMAGE"
+          echo "✅ Pushed: $IMAGE"
+
+          docker logout "${REGISTRY_HOST}"
+
+      # ----------------------------------------
+      # Leave a self-hosted build machine as it was found — ALWAYS, pass or fail.
+      # GitHub-hosted runners are thrown away after the job. Cleanup runs on the
+      # deploy runner (gcp-deploy on dev), so it cannot reach this machine: the
+      # PAT in nuget.config/.npmrc, the registry login and the images this job
+      # built are cleared here or never.
+      # ----------------------------------------
+      - name: '🧹 Clean the build runner'
+        if: always() && runner.environment == 'self-hosted'
+        env:
+          REGISTRY_HOST: ${{ steps.registry.outputs.REGISTRY_HOST }}
+        run: |
+          docker logout "${REGISTRY_HOST:-asia-south2-docker.pkg.dev}" || true
+          rm -f "$GITHUB_WORKSPACE/nuget.config" "$GITHUB_WORKSPACE/.npmrc" || true
+          docker image prune -f --filter "until=24h" || true
+          docker builder prune -f --filter "until=24h" || true
+          echo "✅ Build runner cleaned"
+
+  # ================================================
+  # DEPLOY
+  # ================================================
+  deploy:
+    name: '🚀 Deploy to ${{ inputs.environment }}'
+    needs: build
+    runs-on: ${{ fromJSON(inputs.deploy_runner) }}
+    environment: ${{ inputs.environment }}
+    env:
+      IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+      GCP_REGISTRY: ${{ needs.build.outputs.gcp_registry }}
+      SERVICE_NAME: ${{ inputs.service_name }}
+      IMAGE_NAME: ${{ inputs.image_name }}
+      ENV_VAR_KEY: ${{ inputs.env_var_key }}
+    steps:
+      # ----------------------------------------
+      # LOCAL deploy (Dev only) — runner lives on the target box
+      # ----------------------------------------
+      - name: '🚀 Deploy on Local Server'
+        if: inputs.deploy_mode == 'local'
+        env:
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_ENV_PATH: ${{ vars.REMOTE_ENV_PATH }}
+        run: |
+          set -euo pipefail
+
+          echo "🔄 Updating ${SERVICE_NAME} to ${IMAGE_TAG}"
+
+          # Update version in .env
+          if grep -q "^${ENV_VAR_KEY}=" "${REMOTE_ENV_PATH}"; then
+            sed -i "s|^${ENV_VAR_KEY}=.*|${ENV_VAR_KEY}=${IMAGE_TAG}|" "${REMOTE_ENV_PATH}"
+          else
+            echo "${ENV_VAR_KEY}=${IMAGE_TAG}" >> "${REMOTE_ENV_PATH}"
+          fi
+
+          # Login to GCP Registry
+          REGISTRY_HOST="${GCP_REGISTRY%%/*}"
+          printf '%s' "$GCP_SERVICE_ACCOUNT_KEY" | docker login \
+            -u _json_key \
+            --password-stdin \
+            "${REGISTRY_HOST}"
+
+          # Pull and deploy
+          cd "${REMOTE_PATH}"
+          docker compose pull "${SERVICE_NAME}"
+          docker compose up -d "${SERVICE_NAME}"
+
+          docker logout "${REGISTRY_HOST}"
+          echo "✅ Deployment complete: ${IMAGE_TAG}"
+
+      # ----------------------------------------
+      # SSH deploy (Dev) — hosted runner SSHes into the dev server and runs
+      # the .env update + compose there.
+      # ----------------------------------------
+      - name: '🚀 SSH Deploy'
+        if: inputs.deploy_mode == 'ssh'
+        env:
+          GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
+          SSH_PRIVATE_KEY: ${{ secrets.SSH_PRIVATE_KEY }}
+          SSH_PASSWORD: ${{ secrets.SSH_PASSWORD }}
+          SSH_HOST: ${{ vars.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USERNAME || vars.SSH_USER }}
+          SSH_PORT: ${{ vars.SSH_PORT || '22' }}
+          SSH_KNOWN_HOSTS: ${{ vars.SSH_KNOWN_HOSTS }}
+          REMOTE_PATH: ${{ vars.REMOTE_PATH }}
+          REMOTE_ENV_PATH: ${{ vars.REMOTE_ENV_PATH }}
+        run: |
+          set -euo pipefail
+
+          for v in SSH_HOST SSH_USER REMOTE_PATH REMOTE_ENV_PATH GCP_SERVICE_ACCOUNT_KEY; do
+            if [ -z "${!v}" ]; then echo "❌ ${v} is not set"; exit 1; fi
+          done
+
+          mkdir -p ~/.ssh && chmod 700 ~/.ssh
+          # Password login when SSH_PASSWORD is set, otherwise the private key. sshpass -e reads the
+          # password from $SSHPASS, so it never appears on a command line.
+          if [ -n "$SSH_PASSWORD" ]; then
+            command -v sshpass >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq sshpass >/dev/null; }
+            export SSHPASS="$SSH_PASSWORD"
+            SSH_CMD=(sshpass -e ssh -o PreferredAuthentications=password,keyboard-interactive -o PubkeyAuthentication=no)
+            echo "🔑 Logging in with password as ${SSH_USER}"
+          elif [ -n "$SSH_PRIVATE_KEY" ]; then
+            printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/deploy_key
+            chmod 600 ~/.ssh/deploy_key
+            SSH_CMD=(ssh -i ~/.ssh/deploy_key -o BatchMode=yes)
+            echo "🔑 Logging in with key as ${SSH_USER}"
+          else
+            echo "❌ Set SSH_PASSWORD or SSH_PRIVATE_KEY"; exit 1
+          fi
+          if [ -n "$SSH_KNOWN_HOSTS" ]; then
+            printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+            HOST_CHECK=yes
+          else
+            HOST_CHECK=accept-new
+          fi
+
+          # Values (and the registry key) travel on stdin, not the ssh command
+          # line, so they never show up in `ps` on the server.
+          {
+            printf 'export IMAGE_TAG=%q SERVICE_NAME=%q ENV_VAR_KEY=%q REMOTE_PATH=%q REMOTE_ENV_PATH=%q REGISTRY_HOST=%q\n' \
+              "$IMAGE_TAG" "$SERVICE_NAME" "$ENV_VAR_KEY" "$REMOTE_PATH" "$REMOTE_ENV_PATH" "${GCP_REGISTRY%%/*}"
+            printf 'export GCP_KEY_B64=%q\n' "$(printf '%s' "$GCP_SERVICE_ACCOUNT_KEY" | base64 -w0)"
+            cat << 'REMOTE_SCRIPT'
+          set -euo pipefail
+          echo "🔄 Updating ${SERVICE_NAME} to ${IMAGE_TAG} on $(hostname)"
+
+          if grep -q "^${ENV_VAR_KEY}=" "${REMOTE_ENV_PATH}"; then
+            sed -i "s|^${ENV_VAR_KEY}=.*|${ENV_VAR_KEY}=${IMAGE_TAG}|" "${REMOTE_ENV_PATH}"
+          else
+            echo "${ENV_VAR_KEY}=${IMAGE_TAG}" >> "${REMOTE_ENV_PATH}"
+          fi
+
+          printf '%s' "$GCP_KEY_B64" | base64 -d | docker login \
+            -u _json_key \
+            --password-stdin \
+            "${REGISTRY_HOST}"
+
+          cd "${REMOTE_PATH}"
+          docker compose pull "${SERVICE_NAME}"
+          docker compose up -d "${SERVICE_NAME}"
+
+          docker logout "${REGISTRY_HOST}"
+
+          # Prune on the server — Cleanup runs on a throwaway hosted runner and
+          # cannot reclaim disk here.
+          docker image prune -f --filter "until=24h" || true
+          docker image prune -f || true
+
+          docker compose ps "${SERVICE_NAME}"
+          echo "✅ Deployment complete: ${IMAGE_TAG}"
+          REMOTE_SCRIPT
+          } | "${SSH_CMD[@]}" -p "$SSH_PORT" \
+                -o StrictHostKeyChecking="$HOST_CHECK" \
+                -o ConnectTimeout=20 \
+                "${SSH_USER}@${SSH_HOST}" 'bash -s'
+
+          rm -f ~/.ssh/deploy_key
+
+      # ----------------------------------------
+      # GKE deploy (Prod / Beta) — Tareeka B (chain)
+      # Build ke baad deploy-repo me tag update + push.
+      # Woh push deploy-repo ka workflow trigger karega -> kubectl apply.
+      # ----------------------------------------
+      - name: '🚀 Update deploy repo (triggers GKE apply)'
+        if: inputs.deploy_mode == 'gke'
+        env:
+          DEPLOY_REPO_TOKEN: ${{ secrets.DEPLOY_REPO_TOKEN }}
+          REPO: ${{ inputs.deploy_repo }}
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${REPO}" ]; then
+            echo "❌ ERROR: deploy_repo input not set for GKE deploy"; exit 1
+          fi
+          if [ -z "${DEPLOY_REPO_TOKEN}" ]; then
+            echo "❌ ERROR: Secret DEPLOY_REPO_TOKEN missing"; exit 1
+          fi
+
+          echo "🔄 Updating ${SERVICE_NAME} -> ${IMAGE_TAG} in deploy repo ${OWNER}/${REPO}"
+
+          # 1. Clone deploy repo. A PAT push (not GITHUB_TOKEN) is what lets the
+          #    deploy repo's own workflow trigger on it.
+          CLONE_URL="https://x-access-token:${DEPLOY_REPO_TOKEN}@github.com/${OWNER}/${REPO}.git"
+          WORK_DIR="${RUNNER_TEMP}/deploy-repo"
+          rm -rf "${WORK_DIR}"
+          git clone --depth 20 "${CLONE_URL}" "${WORK_DIR}"
+          cd "${WORK_DIR}"
+
+          # 2. Update image tag in apps/<service>.yaml
+          MANIFEST="apps/${SERVICE_NAME}.yaml"
+          if [ ! -f "${MANIFEST}" ]; then
+            echo "❌ ERROR: ${MANIFEST} not found in deploy repo ${REPO}"; exit 1
+          fi
+          sed -i "s|image: ${GCP_REGISTRY}/${IMAGE_NAME}:.*|image: ${GCP_REGISTRY}/${IMAGE_NAME}:${IMAGE_TAG}|" "${MANIFEST}"
+          echo "📝 New image line:"
+          grep "image:" "${MANIFEST}" || true
+
+          # 3. Commit + push only if changed. Other services push to the same
+          #    repo, so a rejected push is retried on top of theirs.
+          git config user.email "pipeline@saarvix.in"
+          git config user.name "Saarvix Pipeline"
+          if git diff --quiet; then
+            echo "ℹ️ Tag unchanged — nothing to commit."
+            exit 0
+          fi
+          git add "${MANIFEST}"
+          git commit -m "Deploy ${SERVICE_NAME} ${IMAGE_TAG}"
+          for attempt in 1 2 3 4 5; do
+            if git push origin HEAD:main; then
+              echo "✅ Pushed to ${REPO} — deploy workflow will trigger."
+              exit 0
+            fi
+            echo "⚠️ Push rejected (attempt ${attempt}) — rebasing on latest main"
+            sleep $((attempt * 3))
+            git pull --rebase origin main
+          done
+          echo "❌ Could not push to ${REPO}"; exit 1
+
+  # ================================================
+  # CLEANUP — runs on the deploy runner, pass or fail
+  # ================================================
+  cleanup:
+    name: '🧹 Cleanup'
+    needs: [build, deploy]
+    if: always()
+    runs-on: ${{ fromJSON(inputs.deploy_runner) }}
+    steps:
+      - name: '📊 Pipeline Summary'
+        env:
+          IMAGE_TAG: ${{ needs.build.outputs.image_tag }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          DEPLOY_RESULT: ${{ needs.deploy.result }}
+          DEPLOY_MODE: ${{ inputs.deploy_mode }}
+        run: |
+          {
+            echo "### 📊 Pipeline Summary"
+            echo "| | |"
+            echo "|---|---|"
+            echo "| Image tag | \`${IMAGE_TAG:-n/a}\` |"
+            echo "| Deploy mode | ${DEPLOY_MODE} |"
+            echo "| Branch | ${GITHUB_REF_NAME} |"
+            echo "| Triggered by | ${GITHUB_ACTOR} |"
+            echo "| Build | ${BUILD_RESULT} |"
+            echo "| Deploy | ${DEPLOY_RESULT} |"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # 'docker image prune' must run on the box that actually holds the images.
+      - name: '🐳 Cleanup Docker Images'
+        if: always() && runner.environment == 'self-hosted'
+        run: |
+          echo "🧹 Cleaning up local Docker images..."
+          docker image prune -f --filter "until=24h" || true
+          docker image prune -f || true
+          echo "✅ Docker cleanup complete"
+
+      - name: '🧹 Cleanup deploy-repo clone'
+        if: always() && inputs.deploy_mode == 'gke'
+        run: |
+          rm -rf "${RUNNER_TEMP}/deploy-repo" || true
+          echo "✅ Deploy-repo clone cleaned up"

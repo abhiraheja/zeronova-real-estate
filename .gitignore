@@ -1,0 +1,20 @@
+## Build output
+**/bin/
+**/obj/
+*/Logs
+**/*.lscache
+
+## IDE / OS
+.vs/
+*.user
+.DS_Store
+
+## Secrets — never commit. Local secrets live in `dotnet user-secrets` (see CLAUDE.md).
+.env
+.env.*
+**/appsettings.*.local.json
+**/secrets*.json
+
+## OpenTelemetry self-diagnostics (dev-only)
+OTEL_DIAGNOSTICS.json
+dotnet.*.log
