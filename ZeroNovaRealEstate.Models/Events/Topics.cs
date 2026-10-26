@@ -23,8 +23,10 @@ public static class Topics
 /// created with <paramref name="Tags"/>. The same shape as zeronova-lead's <c>ContactUpsertRequestedNotification</c>.
 /// </summary>
 /// <param name="ExternalRef">This service's id of the person (<c>party:&lt;id&gt;</c>), for the logs.</param>
+/// <param name="WonReason">Set when a deal completes: the buyer's open enquiry (or <paramref name="LeadId"/>) closes as won.</param>
 public sealed record ContactUpsertRequestedEvent(
-    string CompanyId, string? Name, string? Phone, string? Email, IReadOnlyList<string> Tags, string ExternalRef);
+    string CompanyId, string? Name, string? Phone, string? Email, IReadOnlyList<string> Tags, string ExternalRef,
+    string? WonReason = null, string? LeadId = null);
 
 /// <summary>zeronova-utility's <c>DispatchEventMessage</c> (a bell here: no realtime target). Field names are the contract.</summary>
 public sealed record DispatchEventMessage(

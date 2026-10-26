@@ -104,6 +104,9 @@ Contents: 1 components · 2 decisions · 3 build order · 4 M1 in detail · 5 la
   sale completes), or put on a deal (`Seller` / `Buyer`, `Landlord` / `Tenant` for rent) or a tenancy (`Landlord` /
   `Tenant`). Only name, phone (or WhatsApp) and email are sent — never Aadhaar, PAN or address. zeronova-lead finds the
   contact by phone or email, else creates it; never a lead. A failure is logged, never fails the save.
+- **Won enquiries:** completing a deal sends the buyers (`Buyer` + `Property owner`; `Tenant` for rent) with a
+  `WonReason` (`Bought P-0001 (D-0003)`), the deal's lead (or its requirement's) with the first buyer: zeronova-lead
+  closes that lead, and each buyer's own open lead, as won. Customers tagged so open no new lead from their messages.
 
 ### 4.4 Requirement
 

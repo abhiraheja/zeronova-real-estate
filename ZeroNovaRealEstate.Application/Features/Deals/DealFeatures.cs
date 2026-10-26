@@ -150,7 +150,6 @@ public sealed class SetDealStageHandler(IDealRepository deals, IPropertyReposito
                 property.Owners = [.. deal.BuyerIds.Zip(shares, (id, share) => new OwnerModel { PartyId = id, SharePercent = share, Holding = holding })];
                 property.OwnerPhones = [.. (await parties.GetDocuments(p => deal.BuyerIds.Contains(p.Id)).Select(p => p.Phone).ToListAsync(ct)).OfType<string>()];
                 property.Status = PropertyStatus.Sold;
-                await contacts.SyncAsync(deal.BuyerIds, Parties.PartyContacts.Owner, ct);
             }
             else
                 property.Status = PropertyStatus.Rented;
@@ -158,14 +157,22 @@ public sealed class SetDealStageHandler(IDealRepository deals, IPropertyReposito
             await properties.UpdateAsync(property, ct);
             await engine.DropForPropertyAsync(property.Id, ct);
 
+            var leadId = deal.LeadId;
             if (deal.RequirementId is { } requirementId && await requirements.GetDocument(requirementId).FirstOrDefaultAsync(ct) is { } requirement)
             {
+                leadId ??= requirement.LeadId;
                 requirement.Status = RequirementStatus.Closed;
                 requirement.CloseReason = deal.Kind == PropertyPurpose.Sale ? $"Bought {property.Code} through us" : $"Rented {property.Code} through us";
                 await requirements.UpdateAsync(requirement, ct);
                 await engine.ForRequirementAsync(requirement, ct);
             }
             deal.CompletedAt = clock.GetUtcNow().UtcDateTime;
+
+            // The buyer's enquiry became a deal: owners of what they bought, and won in zeronova-lead.
+            if (deal.Kind == PropertyPurpose.Sale)
+                await contacts.WinAsync(deal.BuyerIds, [Parties.PartyContacts.Buyer, Parties.PartyContacts.Owner], $"Bought {property.Code} ({deal.Code})", leadId, ct);
+            else
+                await contacts.WinAsync(deal.BuyerIds, [Parties.PartyContacts.Tenant], $"Rented {property.Code} ({deal.Code})", leadId, ct);
         }
 
         deal.Stage = stage;

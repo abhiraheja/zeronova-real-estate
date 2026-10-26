@@ -132,6 +132,13 @@ public sealed class DealTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Equal((RequirementStatus.Closed, $"Bought {flat.Code} through us"), (closed.Status, closed.CloseReason));
         await Assert.ThrowsAsync<ValidatorException>(() => host.SendAs(CompanyA, new SaveDealCommand(deal.Id, Deal())));
         Assert.True(Assert.Single((await host.SendAs(CompanyA, new GetDealQuery(deal.Id))).Checklist, c => c.Key == "builder_noc").Done);
+
+        // The buyers' enquiry is won in zeronova-lead: the deal's lead goes with the first buyer.
+        var won = host.Contacts.Sent.Where(e => e.WonReason is not null).ToList();
+        Assert.Equal([$"party:{sunita.Id}", $"party:{mohit.Id}"], won.Select(e => e.ExternalRef));
+        Assert.Equal(("lead-7", (string?)null), (won[0].LeadId, won[1].LeadId));
+        Assert.Equal($"Bought {flat.Code} ({deal.Code})", won[0].WonReason);
+        Assert.Equal(["Property party", "Buyer", "Property owner"], won[0].Tags);
     }
 
     [Fact]
