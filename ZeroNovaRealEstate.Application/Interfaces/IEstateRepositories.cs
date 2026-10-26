@@ -71,6 +71,12 @@ public interface ICounterRepository : ICompanyRepositoryBase<CounterDocument>
     Task<long> NextAsync(string name, CancellationToken ct = default, string? companyId = null);
 }
 
+/// <summary>Asks zeronova-lead to put a person into the dealer's contact book.</summary>
+public interface IContactSyncProducer : IMessageProducer
+{
+    Task PublishAsync(ContactUpsertRequestedEvent evt, CancellationToken ct = default);
+}
+
 /// <summary>A bell (and push when offline) for members, through zeronova-utility's dispatch.</summary>
 public interface IAgentNotificationProducer : IMessageProducer
 {

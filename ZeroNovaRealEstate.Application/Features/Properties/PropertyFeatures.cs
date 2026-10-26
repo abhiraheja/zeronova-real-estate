@@ -273,7 +273,7 @@ public sealed class DeletePropertyHandler(IPropertyRepository properties, MatchE
 /// </summary>
 public sealed record SetPropertyOwnersCommand(string PropertyId, IReadOnlyList<PropertyOwnerInput> Owners) : IRequest<PropertyDto>;
 
-public sealed class SetPropertyOwnersHandler(IPropertyRepository properties, IPartyRepository parties, PropertyMapper mapper)
+public sealed class SetPropertyOwnersHandler(IPropertyRepository properties, IPartyRepository parties, PropertyMapper mapper, Parties.PartyContacts contacts)
     : IRequestHandler<SetPropertyOwnersCommand, PropertyDto>
 {
     public async Task<PropertyDto> Handle(SetPropertyOwnersCommand request, CancellationToken ct)
@@ -288,6 +288,8 @@ public sealed class SetPropertyOwnersHandler(IPropertyRepository properties, IPa
         property.Owners = [.. owners.Zip(Shares(owners), (o, share) => new OwnerModel { PartyId = o.PartyId, SharePercent = share, Holding = o.Holding })];
         property.OwnerPhones = [.. owners.Select(o => found[o.PartyId].Phone).OfType<string>().Distinct()];
         await properties.UpdateAsync(property, ct);
+        foreach (var owner in found.Values)
+            await contacts.SyncAsync(owner, ct, Parties.PartyContacts.Owner);
         return await mapper.OneAsync(property, ct);
     }
 

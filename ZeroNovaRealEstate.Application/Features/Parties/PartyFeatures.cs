@@ -35,7 +35,8 @@ public sealed partial class SavePartyValidator : AbstractValidator<SavePartyComm
     private static partial Regex Pan();
 }
 
-public sealed class SavePartyHandler(IPartyRepository parties, IPropertyRepository properties, ISecretProtector secrets, EstateScope scope, IRequestContext context)
+public sealed class SavePartyHandler(
+    IPartyRepository parties, IPropertyRepository properties, ISecretProtector secrets, EstateScope scope, IRequestContext context, PartyContacts contacts)
     : IRequestHandler<SavePartyCommand, PartyDto>
 {
     public async Task<PartyDto> Handle(SavePartyCommand request, CancellationToken ct)
@@ -70,6 +71,7 @@ public sealed class SavePartyHandler(IPartyRepository parties, IPropertyReposito
             await parties.AddAsync(party, ct);
         else
             await parties.UpdateAsync(party, ct);
+        await contacts.SyncAsync(party, ct);
         return await PartyMapping.ToDtoAsync(party, properties, scope, ct);
     }
 

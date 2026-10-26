@@ -9,7 +9,22 @@ public static class Topics
         public const string Topic = "communication-events";
         public const string DispatchEvent = "dispatch-event";
     }
+
+    /// <summary>zeronova-lead's: a person to find or create in the contact book — here owners, buyers and tenants.</summary>
+    public static class ContactRequests
+    {
+        public const string Topic = "contact-requests";
+        public const string UpsertRequested = "contact-upsert-requested";
+    }
 }
+
+/// <summary>
+/// A person for zeronova-lead's contact book, found by <paramref name="Phone"/> (digits) or <paramref name="Email"/>, or
+/// created with <paramref name="Tags"/>. The same shape as zeronova-lead's <c>ContactUpsertRequestedNotification</c>.
+/// </summary>
+/// <param name="ExternalRef">This service's id of the person (<c>party:&lt;id&gt;</c>), for the logs.</param>
+public sealed record ContactUpsertRequestedEvent(
+    string CompanyId, string? Name, string? Phone, string? Email, IReadOnlyList<string> Tags, string ExternalRef);
 
 /// <summary>zeronova-utility's <c>DispatchEventMessage</c> (a bell here: no realtime target). Field names are the contract.</summary>
 public sealed record DispatchEventMessage(

@@ -27,6 +27,7 @@ public static class ApplicationInstaller
 
         // What the caller may see (D14, D15), and properties as members see them.
         services.AddScoped<Features.Common.EstateScope>();
+        services.AddScoped<Features.Parties.PartyContacts>();
         services.AddScoped<Features.Properties.PropertyMapper>();
         // Matching (M1): one place scores a property against a requirement and keeps the matches current.
         services.AddScoped<Features.Matching.MatchEngine>();

@@ -33,7 +33,7 @@ public sealed class SaveDealValidator : AbstractValidator<SaveDealCommand>
 }
 
 public sealed class SaveDealHandler(IDealRepository deals, IPropertyRepository properties, IPartyRepository parties, ICounterRepository counters, DealMapper mapper,
-    EstateScope scope)
+    EstateScope scope, Parties.PartyContacts contacts)
     : IRequestHandler<SaveDealCommand, DealDto>
 {
     public const string CodeCounter = "deal";
@@ -98,6 +98,9 @@ public sealed class SaveDealHandler(IDealRepository deals, IPropertyRepository p
             await deals.AddAsync(deal, ct);
         else
             await deals.UpdateAsync(deal, ct);
+        var rent = deal.Kind == PropertyPurpose.Rent;
+        await contacts.SyncAsync(sellers, rent ? Parties.PartyContacts.Landlord : Parties.PartyContacts.Seller, ct);
+        await contacts.SyncAsync(buyers, rent ? Parties.PartyContacts.Tenant : Parties.PartyContacts.Buyer, ct);
         return await mapper.OneAsync(deal, ct);
     }
 }
@@ -109,7 +112,7 @@ public sealed class SaveDealHandler(IDealRepository deals, IPropertyRepository p
 public sealed record SetDealStageCommand(string DealId, DealStageInput Input) : IRequest<DealDto>;
 
 public sealed class SetDealStageHandler(IDealRepository deals, IPropertyRepository properties, IPartyRepository parties, IRequirementRepository requirements,
-    MatchEngine engine, DealMapper mapper, EstateScope scope, TimeProvider clock)
+    MatchEngine engine, DealMapper mapper, EstateScope scope, TimeProvider clock, Parties.PartyContacts contacts)
     : IRequestHandler<SetDealStageCommand, DealDto>
 {
     public async Task<DealDto> Handle(SetDealStageCommand request, CancellationToken ct)
@@ -147,6 +150,7 @@ public sealed class SetDealStageHandler(IDealRepository deals, IPropertyReposito
                 property.Owners = [.. deal.BuyerIds.Zip(shares, (id, share) => new OwnerModel { PartyId = id, SharePercent = share, Holding = holding })];
                 property.OwnerPhones = [.. (await parties.GetDocuments(p => deal.BuyerIds.Contains(p.Id)).Select(p => p.Phone).ToListAsync(ct)).OfType<string>()];
                 property.Status = PropertyStatus.Sold;
+                await contacts.SyncAsync(deal.BuyerIds, Parties.PartyContacts.Owner, ct);
             }
             else
                 property.Status = PropertyStatus.Rented;

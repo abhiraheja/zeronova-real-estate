@@ -115,6 +115,26 @@ public sealed class PropertyTests(MongoFixture mongo) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task People_go_to_the_contact_book_tagged_by_their_place_without_identity_numbers()
+    {
+        var plot = await Add(Plot());
+        var owner = await host.SendAs(CompanyA, new SavePartyCommand(null, new PartyInput
+        {
+            Name = "Vishal Gupta", Phone = "98140 12345", Email = "vishal@example.test", Aadhaar = "1234 5678 9012", Pan = "abcde1234f", Address = "Sector 70",
+        }));
+        await host.SendAs(CompanyA, new SavePartyCommand(null, new PartyInput { Name = "No Phone" }));   // nothing to find them by
+        await host.SendAs(CompanyA, new SetPropertyOwnersCommand(plot.Id, [new PropertyOwnerInput(owner.Id, null, HoldingKind.BuilderAllotment)]));
+
+        var sent = host.Contacts.Sent.ToList();
+        Assert.Equal(2, sent.Count);
+        Assert.Equal((CompanyA, "Vishal Gupta", "919814012345", "vishal@example.test", $"party:{owner.Id}"),
+            (sent[0].CompanyId, sent[0].Name, sent[0].Phone, sent[0].Email, sent[0].ExternalRef));
+        Assert.Equal(["Property party"], sent[0].Tags);
+        Assert.Equal(["Property party", "Property owner"], sent[1].Tags);
+        Assert.DoesNotContain(sent, e => System.Text.Json.JsonSerializer.Serialize(e).Contains("9012") || System.Text.Json.JsonSerializer.Serialize(e).Contains("Sector 70"));
+    }
+
+    [Fact]
     public async Task Without_the_master_key_identity_numbers_are_refused_but_people_are_saved()
     {
         await using var bare = new TestHost(mongo, encryptionKey: "x");

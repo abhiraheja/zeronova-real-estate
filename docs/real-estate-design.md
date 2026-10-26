@@ -99,6 +99,11 @@ Contents: 1 components · 2 decisions · 3 build order · 4 M1 in detail · 5 la
 - A property's **current owners**: party, share % (equal by default; total 100%), holding (builder allotment,
   authority allotment, registered sale deed, GPA, inheritance), title papers.
 - The same party can own several properties and later be a buyer; parties are reused in deals and agreements (M3).
+- **Contact book** (2026-10-26): `PartyContacts` publishes `contact-upsert-requested` on zeronova-lead's
+  `contact-requests` after a party is saved (tag `Property party`), made an owner (`Property owner`, also buyers when a
+  sale completes), or put on a deal (`Seller` / `Buyer`, `Landlord` / `Tenant` for rent) or a tenancy (`Landlord` /
+  `Tenant`). Only name, phone (or WhatsApp) and email are sent — never Aadhaar, PAN or address. zeronova-lead finds the
+  contact by phone or email, else creates it; never a lead. A failure is logged, never fails the save.
 
 ### 4.4 Requirement
 

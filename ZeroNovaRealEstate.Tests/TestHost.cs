@@ -44,6 +44,9 @@ public sealed class TestHost : IAsyncDisposable
     /// <summary>The bells this service asked zeronova-utility to ring.</summary>
     public FakeBells Bells { get; } = new();
 
+    /// <summary>The people this service asked zeronova-lead to put into the contact book.</summary>
+    public FakeContacts Contacts { get; } = new();
+
     /// <param name="encryptionKey">Null = Core's master key not set up.</param>
     public TestHost(MongoFixture mongo, string? encryptionKey = "default")
     {
@@ -66,6 +69,8 @@ public sealed class TestHost : IAsyncDisposable
         services.AddSingleton<IRequestContext>(Caller);
         services.RemoveAll<IAgentNotificationProducer>();
         services.AddSingleton<IAgentNotificationProducer>(Bells);
+        services.RemoveAll<IContactSyncProducer>();
+        services.AddSingleton<IContactSyncProducer>(Contacts);
         provider = services.BuildServiceProvider();
     }
 
@@ -129,6 +134,19 @@ public sealed class TestCaller : IRequestContext
     public string? UserId { get; set; } = "user-test";
     public string? Email => "dealer@example.test";
     public IReadOnlyCollection<string> Permissions { get; set; } = ["*"];
+}
+
+public sealed class FakeContacts : IContactSyncProducer
+{
+    public ConcurrentQueue<ContactUpsertRequestedEvent> Sent { get; } = new();
+
+    public Task PublishAsync(ContactUpsertRequestedEvent evt, CancellationToken ct = default)
+    {
+        Sent.Enqueue(evt);
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> CancelScheduledAsync(string messageId, CancellationToken ct = default) => Task.FromResult(false);
 }
 
 public sealed class FakeBells : IAgentNotificationProducer

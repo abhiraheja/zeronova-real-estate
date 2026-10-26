@@ -42,7 +42,7 @@ public sealed class SaveTenancyValidator : AbstractValidator<SaveTenancyCommand>
 }
 
 public sealed class SaveTenancyHandler(ITenancyRepository tenancies, IPropertyRepository properties, IPartyRepository parties, IDealRepository deals,
-    MatchEngine engine, TenancyMapper mapper, EstateScope scope)
+    MatchEngine engine, TenancyMapper mapper, EstateScope scope, Parties.PartyContacts contacts)
     : IRequestHandler<SaveTenancyCommand, TenancyDto>
 {
     public async Task<TenancyDto> Handle(SaveTenancyCommand request, CancellationToken ct)
@@ -114,6 +114,8 @@ public sealed class SaveTenancyHandler(ITenancyRepository tenancies, IPropertyRe
         }
         else
             await tenancies.UpdateAsync(row, ct);
+        await contacts.SyncAsync(landlords, Parties.PartyContacts.Landlord, ct);
+        await contacts.SyncAsync(tenants, Parties.PartyContacts.Tenant, ct);
         return await mapper.OneAsync(row, ct);
     }
 }
