@@ -1,0 +1,41 @@
+# ================================================
+# PROD — zeronova-real-estate: build, push, bump the tag in zeronova-k8s. Nothing is applied here.
+# ================================================
+#   Build  -> image asia-south1-docker.pkg.dev/wealthgrow-prod/zeronova-registry/zeronova-real-estate:PRODUCTION.<date>.<n>,
+#             pushed keyless (Workload Identity Federation as zeronova-builder; org/repo variables
+#             GCP_WORKLOAD_IDENTITY_PROVIDER and GCP_BUILDER_SERVICE_ACCOUNT).
+#   Deploy -> commit the new tag to WealthgrowTech/zeronova-k8s apps/zeronova-real-estate.yaml (secret DEPLOY_REPO_TOKEN).
+#   Roll-out -> only when the owner runs zeronova-k8s's 'Deploy — PROD' workflow (production is manual).
+#   Public host: in-cluster only.
+name: Deploy — PROD (build + tag)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-prod-zeronova-real-estate
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write   # build-deploy.yml's Build job asks for it (keyless push as zeronova-builder)
+
+jobs:
+  pipeline:
+    if: github.repository_owner == 'WealthgrowTech'
+    uses: ./.github/workflows/build-deploy.yml
+    with:
+      build_env: prod
+      environment: zeronova-prod
+      deploy_mode: gke
+      deploy_repo: zeronova-k8s
+      service_name: zeronova-real-estate
+      image_name: zeronova-real-estate
+      env_var_key: EVENT_ZERONOVA_REAL_STATE_VERSION   # dev only; required by the reusable workflow
+      dockerfile_path: ZeroNovaRealEstate.Api/Dockerfile
+      package_feed: none
+      build_contexts: |
+        zeronovapackages=WealthgrowTech/ZeroNovaPackages@main
+      gcp_registry: asia-south1-docker.pkg.dev/wealthgrow-prod/zeronova-registry
+      gcp_auth: wif
+    secrets: inherit

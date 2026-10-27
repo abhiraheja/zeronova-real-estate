@@ -23,6 +23,10 @@ concurrency:
   group: deploy-dev-ssh
   cancel-in-progress: false
 
+permissions:
+  contents: read
+  id-token: write   # build-deploy.yml's Build job asks for it (keyless prod pushes); unused on dev
+
 jobs:
   pipeline:
     # abhiraheja wali mirror copy me ye workflow nahi chalega

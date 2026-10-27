@@ -9,11 +9,15 @@
 #   beta/prod -> GitHub-hosted ubuntu-latest
 #
 # Secrets (org- or repo-level):
-#   GCP_SERVICE_ACCOUNT_KEY   JSON key with push/pull on the target registry (dev: wealthgrow-qa)
+#   GCP_SERVICE_ACCOUNT_KEY   JSON key with push/pull on the target registry (dev: wealthgrow-qa; gcp_auth 'key')
 #   NUGET_PAT                 Azure Artifacts feed PAT (package_feed: nuget)
 #   PACKAGES_READ_TOKEN       fine-grained PAT, Contents: read-only on the repos named in build_contexts
 #   NPM_PAT                   Azure Artifacts feed PAT (package_feed: npm)
-#   DEPLOY_REPO_TOKEN         GitHub token with contents:write on saarvix-k8s / saarvix-k8s-beta (gke only)
+#   DEPLOY_REPO_TOKEN         GitHub token with contents:write on the deploy repo (gke only: zeronova-k8s)
+# Variables (org- or repo-level; gcp_auth 'wif' only: keyless, Workload Identity Federation):
+#   GCP_WORKLOAD_IDENTITY_PROVIDER  projects/<n>/locations/global/workloadIdentityPools/github/providers/github-actions
+#   GCP_BUILDER_SERVICE_ACCOUNT     zeronova-builder@<project>.iam.gserviceaccount.com (artifactregistry.writer)
+#   The caller must grant `id-token: write`.
 # Environment secrets (on the 'saarvix-dev' GitHub Environment, deploy_mode 'ssh' only):
 #   SSH_PRIVATE_KEY           private key whose .pub is in the deploy user's ~/.ssh/authorized_keys
 #   SSH_PASSWORD              instead of SSH_PRIVATE_KEY: the deploy user's password (server needs
@@ -86,6 +90,10 @@ on:
         description: 'Override the target registry, e.g. asia-south2-docker.pkg.dev/<project>/<repo>. Empty = the saarvix-499809 default for build_env.'
         type: string
         default: ''
+      gcp_auth:
+        description: "How Build signs in to the registry: 'key' (GCP_SERVICE_ACCOUNT_KEY) | 'wif' (keyless, prod)"
+        type: string
+        default: 'key'
       build_contexts:
         description: >-
           Extra named Docker build contexts from other repos, one `name=owner/repo@ref` per line.
@@ -105,6 +113,9 @@ jobs:
   build:
     name: '🔨 Build & Push Docker Image'
     runs-on: ${{ fromJSON(inputs.build_runner) }}
+    permissions:
+      contents: read
+      id-token: write   # gcp_auth 'wif'; the caller must grant it
     outputs:
       image_tag: ${{ steps.versioning.outputs.IMAGE_TAG }}
       gcp_registry: ${{ steps.registry.outputs.GCP_REGISTRY }}
@@ -245,8 +256,20 @@ jobs:
           done <<< "$BUILD_CONTEXTS"
           echo "args=${ARGS# }" >> "$GITHUB_OUTPUT"
 
+      - name: '🔐 GCP Auth (keyless)'
+        id: wif
+        if: inputs.gcp_auth == 'wif'
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_BUILDER_SERVICE_ACCOUNT }}
+          token_format: access_token
+          create_credentials_file: false
+
       - name: '🐳 Build & Push to GCP'
         env:
+          GCP_AUTH: ${{ inputs.gcp_auth }}
+          GCP_ACCESS_TOKEN: ${{ steps.wif.outputs.access_token }}
           GCP_SERVICE_ACCOUNT_KEY: ${{ secrets.GCP_SERVICE_ACCOUNT_KEY }}
           REGISTRY_HOST: ${{ steps.registry.outputs.REGISTRY_HOST }}
           IMAGE: ${{ steps.registry.outputs.GCP_REGISTRY }}/${{ inputs.image_name }}:${{ steps.versioning.outputs.IMAGE_TAG }}
@@ -259,11 +282,15 @@ jobs:
           # Piped straight in, never written to /tmp: on a self-hosted runner
           # (Dell Server) a key file left by a failed login stays on disk for
           # the next job — and the next person — to find.
-          printf '%s' "$GCP_SERVICE_ACCOUNT_KEY" | docker login \
-            -u _json_key \
-            --password-stdin \
-            "${REGISTRY_HOST}"
-          echo "✅ GCP Auth successful"
+          if [ "$GCP_AUTH" = "wif" ]; then
+            printf '%s' "$GCP_ACCESS_TOKEN" | docker login -u oauth2accesstoken --password-stdin "${REGISTRY_HOST}"
+          else
+            printf '%s' "$GCP_SERVICE_ACCOUNT_KEY" | docker login \
+              -u _json_key \
+              --password-stdin \
+              "${REGISTRY_HOST}"
+          fi
+          echo "✅ GCP Auth successful (${GCP_AUTH})"
 
           ARGS=()
           while IFS= read -r line; do
@@ -437,9 +464,9 @@ jobs:
           rm -f ~/.ssh/deploy_key
 
       # ----------------------------------------
-      # GKE deploy (Prod / Beta) — Tareeka B (chain)
-      # Build ke baad deploy-repo me tag update + push.
-      # Woh push deploy-repo ka workflow trigger karega -> kubectl apply.
+      # GKE deploy (Prod): bump the tag in the deploy repo and stop there.
+      # Production is applied only when the owner runs the deploy repo's
+      # "Deploy — PROD" workflow by hand.
       # ----------------------------------------
       - name: '🚀 Update deploy repo (triggers GKE apply)'
         if: inputs.deploy_mode == 'gke'
@@ -488,7 +515,7 @@ jobs:
           git commit -m "Deploy ${SERVICE_NAME} ${IMAGE_TAG}"
           for attempt in 1 2 3 4 5; do
             if git push origin HEAD:main; then
-              echo "✅ Pushed to ${REPO} — deploy workflow will trigger."
+              echo "✅ Pushed to ${REPO}. Nothing is applied yet: run its 'Deploy — PROD' workflow to roll it out."
               exit 0
             fi
             echo "⚠️ Push rejected (attempt ${attempt}) — rebasing on latest main"
