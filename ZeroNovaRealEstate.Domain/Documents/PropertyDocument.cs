@@ -210,6 +210,9 @@ public sealed class PropertyDocument : CompanyDocumentBase
 
     [BsonElement("holdLeadName")] public string? HoldLeadName { get; set; }
 
+    /// <summary>The member who blocked the unit: they (and PRQV) see whom it is held for.</summary>
+    [BsonElement("holdBy")] [BsonIgnoreIfNull] public string? HoldBy { get; set; }
+
     // ── The company's website (cms doc 06 §12, E2). A project unit is never listed on its own (only through its project).
 
     /// <summary>Listed on the company's website while available or on hold (and the website is on).</summary>

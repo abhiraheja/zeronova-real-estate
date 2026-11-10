@@ -248,7 +248,9 @@ internal static class VideoAccess
 
 /// <summary>
 /// Starts a video of a property or project: zeronova-media makes the upload (at most 2 minutes, checked when it encodes)
-/// and the row shows it Uploading. At most 3 a listing; a <c>video/*</c> file of at most 1 GB.
+/// and the row shows it Uploading. At most 3 a listing — each row takes one of the listing's places (<see
+/// cref="EstateVideoDocument.Slot"/>, unique), so two uploads started at once cannot both take the last one (the loser's
+/// upload is aborted in zeronova-media); a <c>video/*</c> file of at most 1 GB.
 /// </summary>
 public sealed record StartEstateVideoUploadCommand(EstateListingKind ListingKind, string ListingId, string FileName, long SizeBytes, string ContentType, string? Title)
     : IRequest<EstateVideoUploadDto>;
@@ -285,6 +287,10 @@ public sealed class StartEstateVideoUploadHandler(IEstateVideoRepository videos,
         if (rows.Count >= EstateVideoRules.MaxPerListing)
             throw new ValidatorException($"A {(request.ListingKind == EstateListingKind.Project ? "project" : "property")} takes at most {EstateVideoRules.MaxPerListing} videos. Delete one first.");
 
+        // The lowest free place; a parallel start sees the same rows, takes the same place and loses at the unique index.
+        var taken = rows.Select(r => r.Slot).OfType<int>().ToHashSet();
+        var slot = Enumerable.Range(0, EstateVideoRules.MaxPerListing).First(i => !taken.Contains(i));
+
         var fileName = request.FileName.Trim();
         var title = EstateText.Clean(request.Title) ?? EstateText.Clean(System.IO.Path.GetFileNameWithoutExtension(fileName)) ?? "Video";
         if (title.Length > EstateVideoRules.TitleLimit)
@@ -297,9 +303,25 @@ public sealed class StartEstateVideoUploadHandler(IEstateVideoRepository videos,
         {
             Id = videos.GetNewId, ListingKind = request.ListingKind, ListingId = listingId, VideoId = upload.VideoId, ExternalRef = externalRef, Title = title,
             Status = EstateVideoStatus.Uploading, SortOrder = rows.Count == 0 ? 0 : rows.Max(r => r.SortOrder) + 1, AddedAt = clock.GetUtcNow().UtcDateTime,
-            FileName = fileName, SizeBytes = request.SizeBytes,
+            FileName = fileName, SizeBytes = request.SizeBytes, Slot = slot,
         };
-        await videos.AddAsync(row, ct, company);
+        try
+        {
+            await videos.AddAsync(row, ct, company);
+        }
+        catch (MongoDB.Driver.MongoWriteException ex) when (ex.WriteError.Category == MongoDB.Driver.ServerErrorCategory.DuplicateKey)
+        {
+            // Another upload took the place a moment ago: this one is not kept, and its upload in zeronova-media goes.
+            try
+            {
+                await media.AbortUploadAsync(company, upload.VideoId, CancellationToken.None);
+            }
+            catch (Exception abort) when (abort is not OperationCanceledException)
+            {
+                // Best effort: zeronova-media's sweeps drop abandoned uploads.
+            }
+            throw new ValidatorException($"A {(request.ListingKind == EstateListingKind.Project ? "project" : "property")} takes at most {EstateVideoRules.MaxPerListing} videos. Delete one first.");
+        }
         return UploadDto(upload, row);
     }
 

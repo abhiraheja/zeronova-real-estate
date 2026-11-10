@@ -100,9 +100,18 @@ public static class ProjectUnits
             .Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
     }
 
-    public static UnitDto ToDto(PropertyDocument u) => new(
-        u.Id, u.Code, u.ProjectId ?? string.Empty, u.UnitTypeId ?? string.Empty, u.UnitTypeName, u.Tower, u.Floor, u.UnitNumber, StatusOf(u.Status), u.Status,
-        u.HoldUntil, u.HoldLeadId, u.HoldLeadName, u.Price, u.OwnPrice, u.SizeSqFt, u.Facing, u.Corner, u.ParkFacing, u.RoadWidthFeet, u.Notes);
+    /// <summary>A unit on the board; whom it is held for only for <paramref name="scope"/> with PRQV or the member who held it (null: nobody).</summary>
+    public static UnitDto ToDto(PropertyDocument u, EstateScope? scope)
+    {
+        var seesHold = scope is not null && MaySeeHold(u, scope);
+        return new(u.Id, u.Code, u.ProjectId ?? string.Empty, u.UnitTypeId ?? string.Empty, u.UnitTypeName, u.Tower, u.Floor, u.UnitNumber, StatusOf(u.Status),
+            u.Status, u.HoldUntil, seesHold ? u.HoldLeadId : null, seesHold ? u.HoldLeadName : null, u.Price, u.OwnPrice, u.SizeSqFt, u.Facing, u.Corner,
+            u.ParkFacing, u.RoadWidthFeet, u.Notes);
+    }
+
+    /// <summary>The lead a unit (or property) is held for is the hold-maker's and the managers' (PRQV) — not every member's.</summary>
+    public static bool MaySeeHold(PropertyDocument u, EstateScope scope) =>
+        scope.SeesAllRequirements || (u.HoldBy is { } by && by == scope.UserIdOrNull);
 
     /// <summary>
     /// The GST % on a unit's cost sheet: none for an unsold unit once the project has its occupancy certificate; else the
@@ -275,13 +284,21 @@ public static class CostSheetEngine
 
 /// <summary>
 /// Keeps a project's units in step with their type, their project and the current price list (D18, D22), and then
-/// matches each unit type once (D24) — never once per unit.
+/// matches each unit type once (D24) — never once per unit, and only the types whose units changed in what matching reads.
 /// </summary>
-public sealed class ProjectUnitSync(IPropertyRepository properties, IUnitTypeRepository unitTypes, IPriceListRepository priceLists, MatchEngine engine)
+public sealed class ProjectUnitSync(IPropertyRepository properties, IUnitTypeRepository unitTypes, IPriceListRepository priceLists, MatchEngine engine,
+    TimeProvider clock)
 {
-    /// <summary>The newest version of the project's price list — the one units are priced from.</summary>
-    public async Task<PriceListDocument?> CurrentListAsync(string projectId, CancellationToken ct) =>
-        await priceLists.GetDocuments(l => l.ProjectId == projectId).OrderByDescending(l => l.ListVersion).FirstOrDefaultAsync(ct);
+    /// <summary>
+    /// The current version of the project's price list — the one units are priced from: the newest whose effective day has
+    /// come (India day). A version dated later is scheduled (<see cref="PriceLists"/>).
+    /// </summary>
+    public async Task<PriceListDocument?> CurrentListAsync(string projectId, CancellationToken ct, string? companyId = null)
+    {
+        var today = EstateText.Today(clock);
+        return await priceLists.GetDocuments(l => l.ProjectId == projectId && l.EffectiveFrom.CompareTo(today) <= 0, false, companyId)
+            .OrderByDescending(l => l.ListVersion).FirstOrDefaultAsync(ct);
+    }
 
     /// <summary>
     /// A unit takes its type's and project's fields, and its price from the list unless it has its own. A booked or sold
@@ -295,30 +312,46 @@ public sealed class ProjectUnitSync(IPropertyRepository properties, IUnitTypeRep
         unit.PriceValue = unit.Price;
     }
 
-    /// <summary>Every unit of the project (or of one type) brought in step; the ones that changed are saved; each type matched once.</summary>
-    public async Task<int> RefreshAsync(ProjectDocument project, string? unitTypeId, CancellationToken ct)
+    /// <summary>
+    /// Every unit of the project (or of one type) brought in step; the ones that changed are saved. A type is matched again
+    /// (once) only when one of its units changed in what matching reads (<see cref="MatchSignature"/>: price, status, size,
+    /// place, rooms, facing …) — a photo or a note changes nothing for a customer. <paramref name="companyId"/> for a job.
+    /// </summary>
+    public async Task<int> RefreshAsync(ProjectDocument project, string? unitTypeId, CancellationToken ct, string? companyId = null)
     {
-        var types = (await unitTypes.GetDocuments(t => t.ProjectId == project.Id).ToListAsync(ct)).ToDictionary(t => t.Id);
-        var list = await CurrentListAsync(project.Id, ct);
-        var query = properties.GetDocuments(u => u.ProjectId == project.Id);
+        var types = (await unitTypes.GetDocuments(t => t.ProjectId == project.Id, false, companyId).ToListAsync(ct)).ToDictionary(t => t.Id);
+        var list = await CurrentListAsync(project.Id, ct, companyId);
+        var query = properties.GetDocuments(u => u.ProjectId == project.Id, false, companyId);
         if (unitTypeId is not null)
             query = query.Where(u => u.UnitTypeId == unitTypeId);
         var changed = 0;
+        var rematch = new HashSet<string>();
         foreach (var unit in await query.ToListAsync(ct))
         {
             if (unit.UnitTypeId is null || !types.TryGetValue(unit.UnitTypeId, out var type))
                 continue;
             var before = unit.ToJson();
+            var signature = MatchSignature(unit);
             Shape(unit, project, type, list);
             if (unit.ToJson() == before)
                 continue;
-            await properties.UpdateAsync(unit, ct);
+            await properties.UpdateAsync(unit, ct, companyId);
             changed++;
+            if (MatchSignature(unit) != signature)
+                rematch.Add(type.Id);
         }
-        foreach (var typeId in unitTypeId is null ? [.. types.Keys] : new List<string> { unitTypeId })
-            await engine.ForUnitTypeAsync(project.Id, typeId, ct);
+        foreach (var typeId in rematch.Order(StringComparer.Ordinal))
+            await engine.ForUnitTypeAsync(project.Id, typeId, ct, companyId);
         return changed;
     }
+
+    /// <summary>What <see cref="MatchEngine"/> reads of a unit (and shows on its matches), in one string.</summary>
+    public static string MatchSignature(PropertyDocument u) => string.Join('|', new object?[]
+    {
+        u.Status, u.IsDeleted, u.Purpose, u.Type, u.City, u.LocalityKey, u.Locality, u.PriceValue, u.Bhk, u.SizeSqFt, u.Corner, u.ParkFacing, u.Facing,
+        u.Lift, u.CoveredParking, u.OpenParking, u.Floor, u.TotalFloors, u.Furnishing, string.Join(',', u.TenantPreferences), u.UnitTypeName, u.Society,
+        u.Source, u.Construction,
+    }.Select(x => Convert.ToString(x, CultureInfo.InvariantCulture)));
 }
 
 internal static class ProjectLookup
@@ -336,7 +369,57 @@ internal static class ProjectLookup
     }
 }
 
-/// <summary>Projects as members see them: counts by status, the current price list, plans; CP terms only with PBRV (D25).</summary>
+/// <summary>The current and scheduled versions of a price list (D22, review fixes 2026-11-11).</summary>
+public static class PriceLists
+{
+    /// <summary>Dated later than <paramref name="today"/> (India day): stored and shown, not yet pricing the units.</summary>
+    public static bool IsScheduled(PriceListDocument l, string today) => string.CompareOrdinal(l.EffectiveFrom, today) > 0;
+
+    /// <summary>The newest version whose day has come, out of versions newest first.</summary>
+    public static PriceListDocument? Current(IEnumerable<PriceListDocument> newestFirst, string today) =>
+        newestFirst.FirstOrDefault(l => !IsScheduled(l, today));
+
+    /// <summary>The next version to take effect after <paramref name="current"/>: the soonest-dated later version (the newest of a day).</summary>
+    public static PriceListDocument? Next(IEnumerable<PriceListDocument> versions, PriceListDocument? current, string today) =>
+        versions.Where(l => IsScheduled(l, today) && l.ListVersion > (current?.ListVersion ?? 0))
+            .OrderBy(l => l.EffectiveFrom, StringComparer.Ordinal).ThenByDescending(l => l.ListVersion).FirstOrDefault();
+}
+
+/// <summary>
+/// The scheduled price list step (run with the hold sweep, every ten minutes): a version saved for a later day prices the
+/// units once its day comes (India day), and its unit types are matched again where the prices moved. Runs with no
+/// caller, across companies, through the repositories' <c>companyId</c> overloads; one failing version is logged and the
+/// rest go on.
+/// </summary>
+public sealed class ScheduledPriceListStep(IPriceListRepository priceLists, IProjectRepository projects, ProjectUnitSync sync, TimeProvider clock,
+    Microsoft.Extensions.Logging.ILogger<ScheduledPriceListStep> logger)
+{
+    public async Task<int> RunOnceAsync(CancellationToken ct)
+    {
+        var due = await priceLists.ScheduledDueAsync(EstateText.Today(clock), 50, ct);
+        var applied = 0;
+        foreach (var list in due)
+        {
+            try
+            {
+                if (await projects.GetDocument(list.ProjectId, false, list.CompanyId).FirstOrDefaultAsync(ct) is { } project)
+                    await sync.RefreshAsync(project, null, ct, list.CompanyId);
+                await priceLists.MarkAppliedAsync(list.Id, list.CompanyId, ct);
+                applied++;
+                Microsoft.Extensions.Logging.LoggerExtensions.LogInformation(logger,
+                    "Price list v{Version} of project {ProjectId} (company {CompanyId}) took effect.", list.ListVersion, list.ProjectId, list.CompanyId);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Microsoft.Extensions.Logging.LoggerExtensions.LogError(logger, ex,
+                    "Price list {PriceListId} of company {CompanyId} could not be applied; trying again on the next run.", list.Id, list.CompanyId);
+            }
+        }
+        return applied;
+    }
+}
+
+/// <summary>Projects as members see them: counts by status, the current price list, plans; CP terms only with PBRV or PBRM (D25).</summary>
 public sealed class ProjectMapper(
     IUnitTypeRepository unitTypes, IPropertyRepository properties, IPriceListRepository priceLists, IPaymentPlanRepository plans,
     IEstateSettingsRepository settings, EstateScope scope, TimeProvider clock, Enquiries.EnquiryCounts enquiries,
@@ -357,13 +440,17 @@ public sealed class ProjectMapper(
         var s = await EstateSettings.LoadAsync(settings, ct);
         var types = await unitTypes.GetDocuments(t => t.ProjectId == p.Id).OrderBy(t => t.Order).ThenBy(t => t.Name).ToListAsync(ct);
         var units = await UnitRowsAsync([p.Id], ct);
-        var list = await priceLists.GetDocuments(l => l.ProjectId == p.Id).OrderByDescending(l => l.ListVersion).FirstOrDefaultAsync(ct);
+        var today = EstateText.Today(clock);
+        var versions = await priceLists.GetDocuments(l => l.ProjectId == p.Id).OrderByDescending(l => l.ListVersion).Take(50).ToListAsync(ct);
+        var list = PriceLists.Current(versions, today);
+        var scheduled = PriceLists.Next(versions, list, today);
         var planRows = await plans.GetDocuments(x => x.ProjectId == p.Id).OrderBy(x => x.Name).ToListAsync(ct);
         var names = types.ToDictionary(t => t.Id, t => t.Name);
         var projectEnquiries = await enquiries.ForProjectsAsync([p.Id], ct);
         var typeEnquiries = await enquiries.ForUnitTypesAsync(types.Select(t => t.Id), ct);
         var projectVideos = (await videos.OfAsync(Models.Videos.EstateListingKind.Project, [p.Id], false, null, ct))[p.Id];
-        var cp = scope.Has(EstatePermissions.BrokerageView) && p.CpTerms is { } t
+        // Read with PBRV or PBRM (as the deal checks read brokerage): whoever may save the terms sees them, so a save keeps them.
+        var cp = (scope.Has(EstatePermissions.BrokerageView) || scope.Has(EstatePermissions.BrokerageManage)) && p.CpTerms is { } t
             ? new CpTermsDto(t.CommissionPercent, [.. t.PerUnitType.Select(x => new CpUnitTypeAmountDto(x.UnitTypeId, x.Amount))], t.PaidWhen, t.LeadValidityDays,
                 t.ValidUntil, t.Notes)
             : null;
@@ -384,7 +471,7 @@ public sealed class ProjectMapper(
                 Enquiries = Enquiries.EnquiryCounts.Of(typeEnquiries, type.Id),
             })],
             ProjectUnits.Count(units.Select(u => u.Status)),
-            list is null ? null : PriceList(list, names),
+            list is null ? null : PriceList(list, names, today),
             [.. planRows.Select(x => Plan(x, p.Milestones))],
             EstateSettings.IsStale(p, s, clock.GetUtcNow().UtcDateTime),
             new DateTimeOffset(DateTime.SpecifyKind(p.LastConfirmedAt, DateTimeKind.Utc)), p.CreatedBy?.ChangedDate, p.ShowOnWebsite, p.Featured, p.Slug)
@@ -392,6 +479,7 @@ public sealed class ProjectMapper(
             Enquiries = Enquiries.EnquiryCounts.Of(projectEnquiries, p.Id),
             State = p.State,
             Videos = [.. projectVideos.Select(Videos.EstateVideoBook.Dto)],
+            ScheduledPriceList = scheduled is null ? null : PriceList(scheduled, names, today),
         };
     }
 
@@ -422,10 +510,15 @@ public sealed class ProjectMapper(
     public static IEnumerable<ConstructionUpdateDto> Updates(ProjectDocument p) =>
         p.Updates.OrderByDescending(u => u.Date, StringComparer.Ordinal).Select(u => new ConstructionUpdateDto(u.Id, u.Date, u.Text, [.. u.Photos.Select(x => new PhotoDto(x.Key, x.Url))]));
 
-    public static PriceListDto PriceList(PriceListDocument l, IReadOnlyDictionary<string, string> typeNames) => new(l.Id, l.ProjectId, l.ListVersion, l.EffectiveFrom,
+    /// <param name="today">The India day, to say whether the version is still <see cref="PriceListDto.Scheduled"/>.</param>
+    public static PriceListDto PriceList(PriceListDocument l, IReadOnlyDictionary<string, string> typeNames, string today) => new(l.Id, l.ProjectId, l.ListVersion,
+        l.EffectiveFrom,
         [.. l.Rates.Select(r => new UnitTypeRateDto(r.UnitTypeId, typeNames.GetValueOrDefault(r.UnitTypeId), r.Basis, r.Rate, r.Area))],
         [.. l.Charges.Select(c => new ChargeDto(c.Name, c.Kind, c.Amount, c.Mandatory, c.Applies, c.FloorFrom, c.FloorTo, c.AboveFloor, c.Taxable, c.UnitTypeIds))],
-        l.Notes, new DateTimeOffset(DateTime.SpecifyKind(l.CreatedAt, DateTimeKind.Utc)));
+        l.Notes, new DateTimeOffset(DateTime.SpecifyKind(l.CreatedAt, DateTimeKind.Utc)))
+    {
+        Scheduled = PriceLists.IsScheduled(l, today),
+    };
 
     public static PaymentPlanDto Plan(PaymentPlanDocument x, IReadOnlyList<MilestoneModel> milestones) => new(x.Id, x.ProjectId, x.Name, x.Kind,
         [.. x.Steps.Select(s => new PlanStepDto(s.Label, s.Percent, s.Amount, s.Due, s.Days, s.MilestoneId,

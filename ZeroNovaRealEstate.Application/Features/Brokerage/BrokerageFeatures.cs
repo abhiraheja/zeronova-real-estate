@@ -73,6 +73,7 @@ public sealed class SaveBrokerageHandler(IBrokerageRepository brokerages, IDealR
         row.GstPercent = input.GstPercent ?? (s.GstRegistered ? 18m : 0m);
         row.PayerKind = input.PayerKind ?? row.PayerKind ?? (isNew ? PayerKind.IndividualOrHuf : null);
         row.TdsPercent = input.TdsPercent ?? await RuleTdsAsync(row, s, ct);
+        row.TdsManual = input.TdsPercent is not null;   // null: the rule's, now and on the next save
         row.Notes = EstateText.Clean(input.Notes);
         if (BrokerageMath.Receivable(row) < row.Receipts.Sum(r => r.Amount))
             throw new ValidatorException("More is already received than this brokerage comes to.");

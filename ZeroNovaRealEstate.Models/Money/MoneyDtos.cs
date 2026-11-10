@@ -97,6 +97,12 @@ public sealed record BrokerageDto(
     /// <summary>Who pays (C5); null on a brokerage saved before C5.</summary>
     public PayerKind? PayerKind { get; init; }
 
+    /// <summary>
+    /// <see cref="TdsPercent"/> was typed in on the last save (a 2% or 20% the user chose); false when the rule set it. A
+    /// save with no TDS % applies the rule again.
+    /// </summary>
+    public bool TdsManual { get; init; }
+
     /// <summary>The TDS section by the invoice date (C5): s.393(1) (Table Sl. 1(ii)) from 1 April 2026, s.194H before; null with no TDS.</summary>
     public string? TdsSection { get; init; }
 

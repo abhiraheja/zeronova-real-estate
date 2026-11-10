@@ -393,6 +393,8 @@ public sealed class WatchedDemandTests(MongoFixture mongo) : IAsyncLifetime
 
         // (e) the website: two searches for 3 BHK flats in Sector 70 found nothing (by slug and by name), one in Sector 82, one with text only.
         var code = (await host.SendAs(CompanyA, new SaveEstateWebsiteSettingsCommand(new EstateWebsiteSettingsInput(true, null)))).Code;
+        // Only the company's own localities are kept from a search: Sector 70 is (the requirements'), Sector 82 is added here.
+        await host.WithAsync(CompanyA, sp => sp.GetRequiredService<ILocalityRepository>().EnsureAsync("Sector 82", "sector 82", "Mohali"));
         var sector70 = new EstateWebsitePropertyFilterInput { Purpose = PropertyPurpose.Sale, Types = [PropertyType.Flat], Locality = "sector-70", Bhk = [3], PriceTo = 10000000m };
         Assert.Equal(0, (await Public(new GetEstateWebsitePropertiesQuery(code, sector70, EstateWebsitePropertySort.Featured, 1, 12))).TotalCount);
         await Public(new GetEstateWebsitePropertiesQuery(code, new EstateWebsitePropertyFilterInput

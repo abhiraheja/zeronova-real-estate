@@ -17,37 +17,66 @@ namespace ZeroNovaRealEstate.Application.Features.Requirements;
 /// <summary>
 /// Website searches that found nothing (D34, E2's empty-search log): the criteria and the India day, counted — never who
 /// searched (no IP, no browser, no text search: free text may hold a name or a number). A search with no criteria at all is
-/// not kept. A failure is logged and never fails the search.
+/// not kept. A failure is logged and never fails the search. The searches are anonymous, so what is kept is bounded: a
+/// city or locality only when it is in the company's locality list (as the list spells it; anything else is "*"), names
+/// cut to <see cref="MaxName"/> characters, and at most <see cref="MaxKeysPerDay"/> criteria rows a company a day — past
+/// that, new criteria are counted on the day's <see cref="OverflowKey"/> row.
 /// </summary>
-public sealed class DemandSignals(IDemandSignalRepository signals, TimeProvider clock, ILogger<DemandSignals> logger)
+public sealed class DemandSignals(IDemandSignalRepository signals, ILocalityRepository localities, TimeProvider clock, ILogger<DemandSignals> logger)
 {
+    public const int MaxKeysPerDay = 500;
+    public const int MaxName = 60;
+    public const string OverflowKey = "other";
+
     public async Task RecordEmptySearchAsync(string companyId, PropertyPurpose? purpose, IReadOnlyList<PropertyType>? types, string? city, string? locality,
         decimal? priceFrom, decimal? priceTo, IReadOnlyList<int>? bhk, CancellationToken ct)
     {
         try
         {
-            var typeList = (types ?? []).Distinct().Order().ToList();
+            var typeList = (types ?? []).Where(Enum.IsDefined).Distinct().Order().ToList();
             var bhkList = (bhk ?? []).Where(b => b is > 0 and <= 20).Distinct().Order().ToList();
-            var cityName = EstateText.Clean(city);
-            // A "Popular localities" tile sends a slug: "sector-70" is "sector 70".
-            var place = EstateText.Clean(locality?.Replace('-', ' '));
+            var cityName = await KnownCityAsync(companyId, city, ct);
+            var (place, localityKey) = await KnownLocalityAsync(companyId, locality, ct);
             var band = BudgetBands.Of(purpose, priceFrom, priceTo);
             if (purpose is null && typeList.Count == 0 && cityName is null && place is null && band is null && bhkList.Count == 0)
                 return;
-            var localityKey = place is null ? null : EstateText.Key(place);
             var key = string.Join('|', purpose?.ToString() ?? "*", string.Join(',', typeList), cityName?.ToLowerInvariant() ?? "*", localityKey ?? "*", band ?? "*",
                 string.Join(',', bhkList));
             await signals.RecordAsync(new DemandSignalDocument
             {
                 Id = string.Empty, Day = IndiaTime.Text(IndiaTime.Today(clock)), Key = key, Purpose = purpose, Types = typeList, City = cityName,
                 Locality = place, LocalityKey = localityKey, BudgetBand = band, Bhk = bhkList,
-            }, companyId, ct);
+            }, companyId, MaxKeysPerDay, OverflowKey, ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(ex, "An empty website search of company {CompanyId} was not counted.", companyId);
         }
     }
+
+    /// <summary>The city as the company's locality list spells it, or null when the list has no such city.</summary>
+    private async Task<string?> KnownCityAsync(string companyId, string? city, CancellationToken ct)
+    {
+        if (EstateText.Clean(city) is not { Length: <= MaxName } asked)
+            return null;
+        var known = await localities.GetDocuments(l => l.City != null, false, companyId).Select(l => l.City).Distinct().Take(1000).ToListAsync(ct);
+        return known.FirstOrDefault(c => string.Equals(c, asked, StringComparison.OrdinalIgnoreCase)) is { } c ? Cut(c) : null;
+    }
+
+    /// <summary>
+    /// The locality (name, key) as the company's list has it — a "Popular localities" tile sends a slug: "sector-70" is
+    /// "sector 70" — or nulls when the list has no such locality.
+    /// </summary>
+    private async Task<(string? Name, string? Key)> KnownLocalityAsync(string companyId, string? locality, CancellationToken ct)
+    {
+        if (EstateText.Clean(locality?.Replace('-', ' ')) is not { Length: <= MaxName } asked)
+            return (null, null);
+        var key = EstateText.Key(asked);
+        var row = await localities.GetDocuments(l => l.Key == key, false, companyId).Select(l => new { l.Name, l.Key }).FirstOrDefaultAsync(ct);
+        return row is null ? (null, null) : (Cut(row.Name), Cut(row.Key));
+    }
+
+    private static string Cut(string value) => value.Length <= MaxName ? value : value[..MaxName];
 }
 
 /// <summary>
@@ -68,6 +97,7 @@ public sealed class GetDemandReportHandler(
 {
     private const int MaxDays = 400;
     private const int MaxGroups = 300;
+    private const int MaxSignalRows = 5000;
     private const int MaxSamples = 5;
     private const string Any = "Any";
 
@@ -144,7 +174,12 @@ public sealed class GetDemandReportHandler(
         // (e) website searches that found nothing, counted per day and criteria.
         var fromDay = IndiaTime.Text(from);
         var toDay = IndiaTime.Text(to);
-        foreach (var x in await signals.GetDocuments(x => x.Day.CompareTo(fromDay) >= 0 && x.Day.CompareTo(toDay) <= 0).ToListAsync(ct))
+        // Only the fields the report reads, the most searched first, at most MaxSignalRows rows.
+        var searched = await signals.GetDocuments(x => x.Day.CompareTo(fromDay) >= 0 && x.Day.CompareTo(toDay) <= 0)
+            .OrderByDescending(x => x.Count)
+            .Select(x => new { x.Purpose, x.Types, x.City, x.Locality, x.LocalityKey, x.BudgetBand, x.Bhk, x.Count })
+            .Take(MaxSignalRows).ToListAsync(ct);
+        foreach (var x in searched)
         {
             var c = new DemandCriteria(x.Purpose ?? PropertyPurpose.Sale, x.Types, x.City, x.Locality is null ? [] : [x.Locality], x.Bhk, null, null);
             items.Add(new Item(DemandSource.WebsiteSearch, x.Purpose, c, null, x.Count, x.BudgetBand,

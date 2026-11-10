@@ -45,6 +45,7 @@ public sealed class BrokerageMapper(IDealRepository deals, IPropertyRepository p
                 new DateTimeOffset(DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc)))
             {
                 PayerKind = r.PayerKind,
+                TdsManual = r.TdsManual,
                 TdsSection = r.TdsPercent > 0 ? Deals.BrokerageTds.Section(Deals.BrokerageTds.InvoiceDay(r)) : null,
                 TdsNote = TdsNote(r, s),
                 Warnings = deal is null || property is null ? []

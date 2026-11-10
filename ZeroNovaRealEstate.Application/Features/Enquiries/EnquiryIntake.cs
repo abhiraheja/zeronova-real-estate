@@ -95,7 +95,7 @@ public sealed class LeadEnquiryReceivedHandler(
         if (string.IsNullOrWhiteSpace(n.CompanyId))
             return;
         var company = n.CompanyId.Trim();
-        var meta = Metadata(n.Metadata);
+        var meta = Trusted(Metadata(n.Metadata), n.ExternalRef);
         if (!await IsRealEstateAsync(n, meta, company, ct))
             return;
 
@@ -111,12 +111,19 @@ public sealed class LeadEnquiryReceivedHandler(
     private async Task KeepAsync(LeadEnquiryReceivedNotification n, Dictionary<string, string> meta, string company, CancellationToken ct)
     {
         var reference = EstateText.Clean(n.ExternalRef) ?? EstateText.Clean(n.ActivityId) ?? n.MessageId;
-        if (await enquiries.GetDocuments(e => e.Ref == reference, true, company).AnyAsync(ct))
-            return;   // already kept (a redelivery, or the same capture sent again)
+        if (await enquiries.GetDocuments(e => e.Ref == reference, true, company).FirstOrDefaultAsync(ct) is { } kept)
+        {
+            // Already kept (a redelivery, or the same capture sent again). One whose number was never given (its write's
+            // numbering failed) gets it now — only when it is a minute old, so a parallel delivery never numbers it twice.
+            if (kept.Code.StartsWith(PendingCode, StringComparison.Ordinal) && kept.CreatedAt < clock.GetUtcNow().UtcDateTime.AddMinutes(-1))
+                await NumberAsync(kept, company, ct);
+            return;
+        }
 
         var listing = await EnquiryListings.ResolveAsync(company, meta.GetValueOrDefault(EnquiryMetadata.PropertyId), meta.GetValueOrDefault(EnquiryMetadata.ProjectId),
             meta.GetValueOrDefault(EnquiryMetadata.UnitTypeId), properties, projects, unitTypes, ct);
         var product = meta.GetValueOrDefault(EnquiryMetadata.Product);
+        // Trusted() left the agent keys only on this service's own captures (never on the AI office's).
         var ownCapture = meta.GetValueOrDefault(EnquiryMetadata.Estate) == "1";
 
         string? agentId;
@@ -145,7 +152,7 @@ public sealed class LeadEnquiryReceivedHandler(
         var enquiry = new EnquiryDocument
         {
             Id = enquiries.GetNewId,
-            Code = string.Empty,
+            Code = string.Empty,   // numbered once written: a duplicate never takes a number
             Ref = reference,
             OccurredAt = occurred == default ? now : occurred,
             Source = SourceOf(n, meta),
@@ -177,10 +184,60 @@ public sealed class LeadEnquiryReceivedHandler(
             CreatedAt = now,
             UpdatedAt = now,
         };
-        enquiry.Code = $"E-{await counters.NextAsync(CodeCounter, ct, company):0000}";
+        enquiry.Code = PendingCode + enquiry.Id;   // unique until numbered (company_code_unique)
         enquiry.SearchText = EnquiryText.Search(enquiry);
         if (!await enquiries.AddIfNewAsync(enquiry, ct, company))
+        {
             logger.LogInformation("Enquiry {Ref} of {CompanyId} was already kept.", reference, company);
+            return;
+        }
+        await NumberAsync(enquiry, company, ct);
+    }
+
+    /// <summary>The prefix of an enquiry's code until its number is taken (a moment after it is written).</summary>
+    public const string PendingCode = "~";
+
+    /// <summary>Takes the next E-number for a written enquiry (only after the ref's insert won, so a duplicate takes none).</summary>
+    private async Task NumberAsync(EnquiryDocument enquiry, string company, CancellationToken ct)
+    {
+        enquiry.Code = $"E-{await counters.NextAsync(CodeCounter, ct, company):0000}";
+        enquiry.SearchText = EnquiryText.Search(enquiry);
+        await enquiries.SetCodeAsync(enquiry.Id, enquiry.Code, enquiry.SearchText, ct, company);
+    }
+
+    /// <summary>The ref prefix of this service's own captures (share page, "Add enquiry": <see cref="EnquiryRefs"/>).</summary>
+    public const string OwnRefPrefix = "estate:";
+
+    /// <summary>The ref prefix of the AI office's captures (zeronova-office's property enquiry).</summary>
+    public const string OfficeRefPrefix = "office:";
+
+    /// <summary>Keys only a capture of ours may set: anyone else's (a website form's extra fields) are dropped.</summary>
+    private static readonly string[] OwnKeys = [EnquiryMetadata.Estate, EnquiryMetadata.Source, EnquiryMetadata.AgentId, EnquiryMetadata.AgentName];
+
+    /// <summary>
+    /// The metadata with the own-capture keys (<c>estate</c>, <c>estateSource</c>, <c>agentId</c>, <c>agentName</c>) kept only
+    /// when the capture is ours — its ref starts <see cref="OwnRefPrefix"/>. The AI office's (<see cref="OfficeRefPrefix"/>)
+    /// keeps <c>estate</c> and <c>estateSource = AiOffice</c>, never an agent. Anything else loses all four: a website
+    /// form's extra fields cannot name the agent, the source or make itself our own (and they are not shown as extras).
+    /// </summary>
+    public static Dictionary<string, string> Trusted(Dictionary<string, string> meta, string? externalRef)
+    {
+        var reference = externalRef?.Trim() ?? string.Empty;
+        if (reference.StartsWith(OwnRefPrefix, StringComparison.Ordinal))
+            return meta;
+        var office = reference.StartsWith(OfficeRefPrefix, StringComparison.Ordinal);
+        var estate = meta.GetValueOrDefault(EnquiryMetadata.Estate);
+        var source = meta.GetValueOrDefault(EnquiryMetadata.Source);
+        foreach (var key in OwnKeys)
+            meta.Remove(key);
+        if (office)
+        {
+            if (estate is not null)
+                meta[EnquiryMetadata.Estate] = estate;
+            if (string.Equals(source?.Trim(), nameof(EnquirySource.AiOffice), StringComparison.OrdinalIgnoreCase))
+                meta[EnquiryMetadata.Source] = nameof(EnquirySource.AiOffice);
+        }
+        return meta;
     }
 
     private async Task<bool> IsRealEstateAsync(LeadEnquiryReceivedNotification n, IReadOnlyDictionary<string, string> meta, string company, CancellationToken ct)
@@ -197,7 +254,7 @@ public sealed class LeadEnquiryReceivedHandler(
     private static bool IsRealEstateProduct(string? product) =>
         string.Equals(product?.Trim(), EnquiryMetadata.ProductRealEstate, StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Our own capture says its source; else the share page's form; else the lead's channel.</summary>
+    /// <summary>Our own capture says its source; else the share page's form; else the lead's channel. Called with <see cref="Trusted"/> metadata.</summary>
     public static EnquirySource SourceOf(LeadEnquiryReceivedNotification n, IReadOnlyDictionary<string, string> meta)
     {
         if (meta.GetValueOrDefault(EnquiryMetadata.Estate) == "1" && Enum.TryParse<EnquirySource>(meta.GetValueOrDefault(EnquiryMetadata.Source), true, out var own)

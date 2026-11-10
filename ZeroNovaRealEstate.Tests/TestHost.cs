@@ -67,6 +67,8 @@ public sealed class TestHost : IAsyncDisposable
             ["Messaging:ProjectId"] = "zeronova-tests",
             ["Messaging:EnsureResources"] = "false",
             ["Messaging:Source"] = "zeronova-real-estate-tests",
+            // The C5 paperwork bells start at C5's release (2026-11-11) in production; the tests' tenancies are made today.
+            ["Rentals:ComplianceBellsFrom"] = "2026-01-01",
             ["Encryption:Key"] = encryptionKey == "default" ? Convert.ToBase64String(Enumerable.Range(7, 32).Select(i => (byte)i).ToArray()) : encryptionKey,
         }).Build();
 

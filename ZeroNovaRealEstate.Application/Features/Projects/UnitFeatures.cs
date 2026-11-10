@@ -103,7 +103,8 @@ public sealed class DeleteUnitTypeHandler(IUnitTypeRepository unitTypes, IProper
 /// <summary>The unit board (D20): a project's units by tower, floor and number, of one type or tower, in some statuses.</summary>
 public sealed record GetProjectUnitsQuery(string ProjectId, string? UnitTypeId, string? Tower, IReadOnlyList<UnitStatus>? Statuses) : IRequest<IReadOnlyList<UnitDto>>;
 
-public sealed class GetProjectUnitsHandler(IProjectRepository projects, IPropertyRepository properties) : IRequestHandler<GetProjectUnitsQuery, IReadOnlyList<UnitDto>>
+public sealed class GetProjectUnitsHandler(IProjectRepository projects, IPropertyRepository properties, EstateScope scope)
+    : IRequestHandler<GetProjectUnitsQuery, IReadOnlyList<UnitDto>>
 {
     public async Task<IReadOnlyList<UnitDto>> Handle(GetProjectUnitsQuery request, CancellationToken ct)
     {
@@ -121,7 +122,7 @@ public sealed class GetProjectUnitsHandler(IProjectRepository projects, IPropert
         }
         var rows = await query.Take(5000).ToListAsync(ct);
         return [.. rows.OrderBy(u => u.Tower ?? string.Empty, StringComparer.OrdinalIgnoreCase).ThenBy(u => u.Floor ?? int.MinValue)
-            .ThenBy(u => u.UnitNumber ?? string.Empty, NaturalOrder.Instance).Select(ProjectUnits.ToDto)];
+            .ThenBy(u => u.UnitNumber ?? string.Empty, NaturalOrder.Instance).Select(u => ProjectUnits.ToDto(u, scope))];
     }
 }
 
@@ -169,7 +170,7 @@ public sealed class GenerateUnitsHandler(
             made.Add(unit);
         }
         await engine.ForUnitTypeAsync(project.Id, type.Id, ct);
-        return [.. made.Select(ProjectUnits.ToDto)];
+        return [.. made.Select(u => ProjectUnits.ToDto(u, null))];   // new units: none is held
     }
 
     /// <summary>The numbers a generate input makes, with each one's floor — refused when two would be the same.</summary>
@@ -245,7 +246,7 @@ public sealed class SaveUnitValidator : AbstractValidator<SaveUnitCommand>
 
 public sealed class SaveUnitHandler(
     IProjectRepository projects, IUnitTypeRepository unitTypes, IPropertyRepository properties, ICounterRepository counters, ProjectUnitSync sync,
-    MatchEngine engine, TimeProvider clock)
+    MatchEngine engine, EstateScope scope, TimeProvider clock)
     : IRequestHandler<SaveUnitCommand, UnitDto>
 {
     public async Task<UnitDto> Handle(SaveUnitCommand request, CancellationToken ct)
@@ -293,7 +294,7 @@ public sealed class SaveUnitHandler(
         await engine.ForUnitTypeAsync(project.Id, type.Id, ct);
         if (oldType is not null && oldType != type.Id)
             await engine.ForUnitTypeAsync(project.Id, oldType, ct);
-        return ProjectUnits.ToDto(unit);
+        return ProjectUnits.ToDto(unit, scope);
     }
 }
 
@@ -303,7 +304,7 @@ public sealed class SaveUnitHandler(
 /// </summary>
 public sealed record SetUnitStatusCommand(string PropertyId, UnitStatusInput Input) : IRequest<UnitDto>;
 
-public sealed class SetUnitStatusHandler(IPropertyRepository properties, MatchEngine engine) : IRequestHandler<SetUnitStatusCommand, UnitDto>
+public sealed class SetUnitStatusHandler(IPropertyRepository properties, MatchEngine engine, EstateScope scope) : IRequestHandler<SetUnitStatusCommand, UnitDto>
 {
     public async Task<UnitDto> Handle(SetUnitStatusCommand request, CancellationToken ct)
     {
@@ -315,16 +316,18 @@ public sealed class SetUnitStatusHandler(IPropertyRepository properties, MatchEn
             unit.HoldUntil = EstateText.Date(input.HoldUntil, "Blocked until") ?? throw new ValidatorException("Say until when the unit is blocked.");
             unit.HoldLeadId = EstateText.Clean(input.LeadId) ?? throw new ValidatorException("Say which customer (lead) the unit is blocked for.");
             unit.HoldLeadName = EstateText.Clean(input.LeadName);
+            unit.HoldBy = scope.UserIdOrNull;
         }
         else
         {
             unit.HoldUntil = null;
             unit.HoldLeadId = input.Status == UnitStatus.Booked ? EstateText.Clean(input.LeadId) ?? unit.HoldLeadId : null;
             unit.HoldLeadName = input.Status == UnitStatus.Booked ? EstateText.Clean(input.LeadName) ?? unit.HoldLeadName : null;
+            unit.HoldBy = input.Status == UnitStatus.Booked && unit.HoldLeadId is not null ? unit.HoldBy ?? scope.UserIdOrNull : null;
         }
         await properties.UpdateAsync(unit, ct);
         await engine.ForPropertyAsync(unit, ct);
-        return ProjectUnits.ToDto(unit);
+        return ProjectUnits.ToDto(unit, scope);
     }
 }
 

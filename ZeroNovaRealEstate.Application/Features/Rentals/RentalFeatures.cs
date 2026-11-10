@@ -10,6 +10,7 @@ using ZeroNovaRealEstate.Application.Features.Matching;
 using ZeroNovaRealEstate.Application.Features.Visits;
 using ZeroNovaRealEstate.Application.Interfaces;
 using ZeroNovaRealEstate.Domain.Documents;
+using ZeroNovaRealEstate.Models.Configuration;
 using ZeroNovaRealEstate.Models.Deals;
 using ZeroNovaRealEstate.Models.Events;
 using ZeroNovaRealEstate.Models.Money;
@@ -145,6 +146,7 @@ public sealed class SaveTenancyHandler(ITenancyRepository tenancies, IPropertyRe
         row.AgreementDate = input.AgreementDate is not null ? EstateText.Date(input.AgreementDate, "Agreement date") : row.AgreementDate ?? deal?.ExecutionDate;
         if ((row.AgreementDate ?? row.StartDate) != basisBefore)
             row.RentAuthorityReminded = false;
+        row.RentAuthorityNotApplicable = false;   // the property may be another now: the rent bells read its state again
         if (input.RentFreeDays is { } free)
             row.RentFreeDays = free > 0 ? free : null;
         if (input.PermittedUse is not null)
@@ -443,12 +445,24 @@ public sealed class TenancyMapper(IPropertyRepository properties, IPartyReposito
 /// <summary>
 /// The rent bells (RentReminderJob runs it): rent past its due day this month, a tenancy ending within 30 days, and
 /// (C5) a started tenancy with no police verification, and in Chandigarh the Rent Authority intimation from 15 days
-/// before it is due — each rung once to the agent.
+/// before it is due — each rung once to the agent. The C5 bells only for tenancies of C5's time
+/// (<see cref="RentalOptions.ComplianceBellsFrom"/>: started or created on or after it): the tenancies kept before it are
+/// shown their warnings on screen but never all rung at once. A row already rung keeps its flag (rung once, never again).
+/// A tenancy whose property is not in Chandigarh is marked so when the window opens, and not read for it again.
 /// </summary>
 public sealed class RentReminders(ITenancyRepository tenancies, IPropertyRepository properties, IEstateSettingsRepository settings,
-    IAgentNotificationProducer bell, TimeProvider clock, ILogger<RentReminders> logger)
+    IAgentNotificationProducer bell, TimeProvider clock, RentalOptions options, ILogger<RentReminders> logger)
 {
     private const int Page = 200;
+
+    /// <summary>A tenancy of C5's time: it starts on or after <paramref name="from"/> (India day), or was made on or after it.</summary>
+    public static bool OfC5(TenancyDocument t, string from)
+    {
+        if (string.CompareOrdinal(t.StartDate, from) >= 0)
+            return true;
+        var made = t.CreatedBy?.ChangedDate.UtcDateTime ?? (MongoDB.Bson.ObjectId.TryParse(t.Id, out var oid) ? oid.CreationTime : DateTime.MinValue);
+        return made != DateTime.MinValue && string.CompareOrdinal(IndiaTime.Text(IndiaTime.DateOf(made)), from) >= 0;
+    }
 
     public async Task<int> RunOnceAsync(CancellationToken ct)
     {
@@ -463,9 +477,10 @@ public sealed class RentReminders(ITenancyRepository tenancies, IPropertyReposit
             {
                 var rentDue = Tenancies.RentDue(t, today) && !t.RemindedMonths.Contains(today[..7]);
                 var ending = !t.RenewalReminded && Tenancies.DaysToEnd(t, today) is >= 0 and <= 30;
-                var police = !t.PoliceVerified && !t.PoliceReminded && string.CompareOrdinal(today, t.StartDate) >= 0;
-                // Chandigarh's intimation: only the date is known without the property; the state needs it.
-                var authorityWindow = t.RentAuthorityDoneOn is null && !t.RentAuthorityReminded
+                var ofC5 = OfC5(t, options.ComplianceBellsFrom);
+                var police = ofC5 && !t.PoliceVerified && !t.PoliceReminded && string.CompareOrdinal(today, t.StartDate) >= 0;
+                // Chandigarh's intimation: only the date is known without the property; the state needs it (read once).
+                var authorityWindow = ofC5 && t.RentAuthorityDoneOn is null && !t.RentAuthorityReminded && !t.RentAuthorityNotApplicable
                     && string.CompareOrdinal(today, DateOnly.ParseExact(Tenancies.RentAuthorityDue(t), "yyyy-MM-dd", CultureInfo.InvariantCulture)
                         .AddDays(-Tenancies.RentAuthorityBellDays).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)) >= 0;
                 if (!rentDue && !ending && !police && !authorityWindow)
@@ -477,9 +492,14 @@ public sealed class RentReminders(ITenancyRepository tenancies, IPropertyReposit
                     if (!companies.TryGetValue(t.CompanyId, out var s))
                         companies[t.CompanyId] = s = await EstateSettings.LoadAsync(settings, ct, t.CompanyId);
                     authority = EstateStates.Is(property is null ? s.DefaultState : EstateStates.Of(property, s), EstateStates.Chandigarh);
+                    t.RentAuthorityNotApplicable = !authority;
                 }
                 if (!rentDue && !ending && !police && !authority)
+                {
+                    if (t.RentAuthorityNotApplicable)
+                        await tenancies.UpdateAsync(t, ct, t.CompanyId);   // not Chandigarh: not read for the intimation again
                     continue;
+                }
                 if (rentDue)
                 {
                     t.RemindedMonths.Add(today[..7]);

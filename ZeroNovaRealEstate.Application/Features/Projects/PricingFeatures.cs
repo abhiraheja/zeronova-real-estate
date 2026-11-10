@@ -10,10 +10,10 @@ namespace ZeroNovaRealEstate.Application.Features.Projects;
 
 // ── Price list ────────────────────────────────────────────────────────────────────────────────────────
 
-/// <summary>Every version of a project's price list, newest first (D22: old versions are kept).</summary>
+/// <summary>Every version of a project's price list, newest first (D22: old versions are kept); one dated later is marked scheduled.</summary>
 public sealed record GetPriceListVersionsQuery(string ProjectId) : IRequest<IReadOnlyList<PriceListDto>>;
 
-public sealed class GetPriceListVersionsHandler(IProjectRepository projects, IUnitTypeRepository unitTypes, IPriceListRepository priceLists)
+public sealed class GetPriceListVersionsHandler(IProjectRepository projects, IUnitTypeRepository unitTypes, IPriceListRepository priceLists, TimeProvider clock)
     : IRequestHandler<GetPriceListVersionsQuery, IReadOnlyList<PriceListDto>>
 {
     public async Task<IReadOnlyList<PriceListDto>> Handle(GetPriceListVersionsQuery request, CancellationToken ct)
@@ -21,13 +21,16 @@ public sealed class GetPriceListVersionsHandler(IProjectRepository projects, IUn
         var project = await ProjectLookup.RequireAsync(projects, request.ProjectId, ct);
         var names = (await unitTypes.GetDocuments(t => t.ProjectId == project.Id, true).ToListAsync(ct)).ToDictionary(t => t.Id, t => t.Name);
         var rows = await priceLists.GetDocuments(l => l.ProjectId == project.Id).OrderByDescending(l => l.ListVersion).Take(200).ToListAsync(ct);
-        return [.. rows.Select(l => ProjectMapper.PriceList(l, names))];
+        var today = EstateText.Today(clock);
+        return [.. rows.Select(l => ProjectMapper.PriceList(l, names, today))];
     }
 }
 
 /// <summary>
-/// A new version of the project's price list (D22). It prices every unit without its own price (booked and sold units
-/// keep theirs), and the unit types are matched again (a price change can bring a customer in or out of budget).
+/// A new version of the project's price list (D22). Effective today (or earlier) it prices every unit without its own
+/// price (booked and sold units keep theirs), and the unit types whose prices moved are matched again (a price change can
+/// bring a customer in or out of budget). Dated later it is scheduled: stored and shown, and it prices the units when its
+/// day comes (<see cref="ScheduledPriceListStep"/>).
 /// </summary>
 public sealed record SavePriceListCommand(string ProjectId, PriceListInput Input) : IRequest<PriceListDto>;
 
@@ -77,15 +80,18 @@ public sealed class SavePriceListHandler(IProjectRepository projects, IUnitTypeR
 
         var latest = await priceLists.GetDocuments(l => l.ProjectId == project.Id).OrderByDescending(l => l.ListVersion).Select(l => l.ListVersion).FirstOrDefaultAsync(ct);
         var now = clock.GetUtcNow().UtcDateTime;
+        var today = EstateText.Today(clock);
         var list = new PriceListDocument
         {
             Id = priceLists.GetNewId, ProjectId = project.Id, ListVersion = latest + 1,
-            EffectiveFrom = EstateText.Date(input.EffectiveFrom, "Effective from") ?? EstateText.Today(clock), Rates = rates, Charges = charges,
+            EffectiveFrom = EstateText.Date(input.EffectiveFrom, "Effective from") ?? today, Rates = rates, Charges = charges,
             Notes = EstateText.Clean(input.Notes), CreatedAt = now,
         };
+        list.Pending = PriceLists.IsScheduled(list, today);
         await priceLists.AddAsync(list, ct);
-        await sync.RefreshAsync(project, null, ct);
-        return ProjectMapper.PriceList(list, types.ToDictionary(t => t.Key, t => t.Value.Name));
+        if (!list.Pending)
+            await sync.RefreshAsync(project, null, ct);
+        return ProjectMapper.PriceList(list, types.ToDictionary(t => t.Key, t => t.Value.Name), today);
     }
 }
 

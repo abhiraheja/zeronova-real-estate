@@ -52,7 +52,8 @@ public sealed class VisitMutation(IMediator mediator) : MutationBase
     public Task<VisitDto> RecordVisitResult(string visitId, VisitResultInput input, CancellationToken ct) =>
         mediator.Send(new RecordVisitResultCommand(visitId, input), ct);
 
-    [RequirePermission(P.PropertyView, P.PropertyManage, P.RequirementManage)]
+    // PRQV too: whoever may send a match's one-click message (PRQM or PRQV) may share its listing.
+    [RequirePermission(P.PropertyView, P.PropertyManage, P.RequirementManage, P.RequirementView)]
     [GraphQLName("ZeroNova_shareEstateProperty")]
     public Task<ShareDto> ShareProperty(string propertyId, string? requirementId, CancellationToken ct) =>
         mediator.Send(new CreateShareCommand(propertyId, requirementId), ct);

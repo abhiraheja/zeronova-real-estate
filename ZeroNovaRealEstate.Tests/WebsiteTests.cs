@@ -220,7 +220,8 @@ public sealed class WebsiteTests(MongoFixture mongo) : IAsyncLifetime
 
         var page = await Public(new GetEstateWebsitePropertiesQuery(code, new(), EstateWebsitePropertySort.Newest, 1, 12));
         Assert.Equal(2, page.TotalCount);
-        Assert.Equal([("Sector 72", PropertyStatus.OnHold), ("Sector 70", PropertyStatus.Available)], page.Items.Select(i => (i.Locality, i.Status)));
+        // On hold is listed — and shown to the public as available (a hold is the dealer's business).
+        Assert.Equal([("Sector 72", PropertyStatus.Available), ("Sector 70", PropertyStatus.Available)], page.Items.Select(i => (i.Locality, i.Status)));
         Assert.DoesNotContain(page.Items, i => i.Slug == hidden.WebsiteSlug);
 
         // A project's units never show on their own, even with the project on the website.

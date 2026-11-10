@@ -1,11 +1,15 @@
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using ZeroNovaRealEstate.Application.Features.Projects;
 using ZeroNovaRealEstate.Application.Features.Properties;
 
 namespace ZeroNovaRealEstate.Infrastructure.Persistence;
 
-/// <summary>Every ten minutes: properties whose hold ran out go back to available and are matched again.</summary>
+/// <summary>
+/// Every ten minutes: properties whose hold ran out go back to available and are matched again; then price list versions
+/// whose day has come price their units (<see cref="ScheduledPriceListStep"/>).
+/// </summary>
 public sealed class HoldReleaseJob(IServiceScopeFactory scopes, ILogger<HoldReleaseJob> logger) : BackgroundService
 {
     private static readonly TimeSpan Every = TimeSpan.FromMinutes(10);
@@ -23,6 +27,15 @@ public sealed class HoldReleaseJob(IServiceScopeFactory scopes, ILogger<HoldRele
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 logger.LogError(ex, "Releasing ended holds failed; trying again in ten minutes.");
+            }
+            try
+            {
+                await using var scope = scopes.CreateAsyncScope();
+                await scope.ServiceProvider.GetRequiredService<ScheduledPriceListStep>().RunOnceAsync(stoppingToken);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Applying scheduled price lists failed; trying again in ten minutes.");
             }
             await Task.Delay(Every, stoppingToken).ContinueWith(_ => { }, CancellationToken.None);
         }

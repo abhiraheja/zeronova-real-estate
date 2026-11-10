@@ -165,7 +165,7 @@ public sealed class WatchedDemand(
             var key = field.Key.ToLowerInvariant();
             if (key.Contains("budget") || key.Contains("price"))
             {
-                var amounts = DemandText.Amounts(field.Value);
+                var amounts = DemandText.Amounts(field.Value, true);
                 if (amounts.Count > 0)
                     (min, max) = amounts.Count > 1 ? (amounts.Min(), amounts.Max()) : (min, (decimal?)amounts[0]);
             }
@@ -175,7 +175,8 @@ public sealed class WatchedDemand(
                 purpose = DemandText.Purpose(field.Value) ?? purpose;
             else if (key.Contains("type"))
                 types.AddRange(DemandText.Types(field.Value).Where(t => !types.Contains(t)));
-            else if (key.Contains("locality") || key.Contains("location") || key.Contains("sector") || key.Contains("area"))
+            // "area" only as the whole key: plotArea, superArea … are sizes, not places.
+            else if (key.Contains("locality") || key.Contains("location") || key.Contains("sector") || key == "area")
             {
                 if (EstateText.Clean(field.Value) is { } l && !places.Contains(l, StringComparer.OrdinalIgnoreCase))
                     places.Add(l);
@@ -201,20 +202,33 @@ public sealed class WatchedDemand(
             min is > 0 ? min : null, max is > 0 ? max : null);
     }
 
-    /// <summary>Closes the watches whose date passed (status Closed, the reason kept); answers how many.</summary>
+    /// <summary>
+    /// Closes the watches whose date passed (status Closed, the reason kept); answers how many were closed. A row that fails
+    /// is logged and the sweep goes on with the rest (it is tried again on the next run); a batch where none could be closed
+    /// answers 0, so the job's loop stops.
+    /// </summary>
     public async Task<int> EndWatchesAsync(CancellationToken ct)
     {
         var ended = await requirements.WatchesEndedAsync(clock.GetUtcNow().UtcDateTime, 100, ct);
+        var closed = 0;
         foreach (var requirement in ended)
         {
             var company = requirement.CompanyId;
-            requirement.Status = RequirementStatus.Closed;
-            await requirements.UpdateAsync(requirement, ct, company);
-            await engine.ForRequirementAsync(requirement, ct, company);   // its still-new (revived) matches drop
-            await customers.TouchAsync(requirement.ContactId, [requirement.LeadId], ct, company);
-            logger.LogInformation("Watch on requirement {RequirementId} of company {CompanyId} ended.", requirement.Id, company);
+            try
+            {
+                requirement.Status = RequirementStatus.Closed;
+                await requirements.UpdateAsync(requirement, ct, company);
+                closed++;
+                await engine.ForRequirementAsync(requirement, ct, company);   // its still-new (revived) matches drop
+                await customers.TouchAsync(requirement.ContactId, [requirement.LeadId], ct, company);
+                logger.LogInformation("Watch on requirement {RequirementId} of company {CompanyId} ended.", requirement.Id, company);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                logger.LogError(ex, "Ending the watch on requirement {RequirementId} of company {CompanyId} failed; the sweep goes on.", requirement.Id, company);
+            }
         }
-        return ended.Count;
+        return closed;
     }
 
     private static string? SafePhone(string? phone)
@@ -233,21 +247,43 @@ public sealed class WatchedDemand(
 /// <summary>Reading a need out of free text, as dealers and forms write it: "3 BHK", "80 lakh", "1.2 cr", "25k", "kothi on rent".</summary>
 public static partial class DemandText
 {
-    /// <summary>Amounts in rupees: "80 lakh" / "80L" / "1.2 cr" / "25k" / "₹80,00,000"; "50-80 lakh" is two. A bare number under 1,000 is ignored.</summary>
-    public static IReadOnlyList<decimal> Amounts(string text)
+    /// <summary>
+    /// Amounts in rupees: "80 lakh" / "80L" / "1.2 cr" / "25k" / "₹80,00,000" / "Rs 25000"; "50-80 lakh" is two. Never an
+    /// amount: a number followed by an area unit ("1650 sq ft", "200 gaj", "5 marla", "2 kanal", "1 acre", "3 bigha"), a
+    /// year (1990–2100) or a phone-like number (10 digits or more) without a unit or ₹. In free text a bare number (no ₹ / Rs
+    /// / INR in front, no lakh / cr / k after) counts only from 1,00,000; in a budget field (<paramref name="moneyField"/>)
+    /// from 1,000.
+    /// </summary>
+    public static IReadOnlyList<decimal> Amounts(string text, bool moneyField = false)
     {
         var lower = text.ToLowerInvariant();
-        var raw = new List<(decimal Number, string Unit, int Start, int End)>();
+        var raw = new List<(decimal Number, string Unit, bool Currency, int Digits, bool Area, int Start, int End)>();
         foreach (Match m in Amount().Matches(lower))
-            if (decimal.TryParse(m.Groups[1].Value.Replace(",", string.Empty), NumberStyles.Number, CultureInfo.InvariantCulture, out var n))
-                raw.Add((n, m.Groups[2].Value, m.Index, m.Index + m.Length));
-        // "50-80 lakh", "50 to 80 lakh": a bare number joined by a dash or "to" to one with a unit takes that unit.
-        for (var i = 0; i + 1 < raw.Count; i++)
-            if (raw[i].Unit.Length == 0 && raw[i + 1].Unit.Length > 0 && lower[raw[i].End..raw[i + 1].Start].Trim() is "-" or "to" or "–")
-                raw[i] = (raw[i].Number, raw[i + 1].Unit, raw[i].Start, raw[i].End);
-        var found = new List<decimal>();
-        foreach (var (n, unit, _, _) in raw)
         {
+            var digits = m.Groups[2].Value;
+            if (!decimal.TryParse(digits.Replace(",", string.Empty), NumberStyles.Number, CultureInfo.InvariantCulture, out var n))
+                continue;
+            var unit = m.Groups[3].Value;
+            raw.Add((n, unit, m.Groups[1].Success, digits.Count(char.IsDigit), unit.Length == 0 && AreaAfter().IsMatch(lower[(m.Index + m.Length)..]),
+                m.Index, m.Index + m.Length));
+        }
+        // "50-80 lakh", "50 to 80 lakh": a bare number joined by a dash or "to" to one with a unit takes that unit; one joined
+        // to an area ("1200-1500 sq ft") is an area too.
+        for (var i = raw.Count - 2; i >= 0; i--)
+        {
+            if (raw[i].Unit.Length != 0 || lower[raw[i].End..raw[i + 1].Start].Trim() is not ("-" or "to" or "–"))
+                continue;
+            var next = raw[i + 1];
+            if (next.Area)
+                raw[i] = raw[i] with { Area = true };
+            else if (next.Unit.Length > 0)
+                raw[i] = raw[i] with { Unit = next.Unit, Currency = raw[i].Currency || next.Currency };
+        }
+        var found = new List<decimal>();
+        foreach (var (n, unit, currency, digitCount, area, _, _) in raw)
+        {
+            if (area)
+                continue;
             var value = unit switch
             {
                 "cr" or "crore" or "crores" => n * 10_000_000m,
@@ -255,11 +291,21 @@ public static partial class DemandText
                 "k" or "thousand" => n * 1_000m,
                 _ => n,
             };
-            if ((unit.Length > 0 || value >= 1_000m) && value < 10_000_000_000m)
+            if (unit.Length == 0 && !currency)
+            {
+                if (digitCount >= 10 || (n == Math.Floor(n) && n is >= 1990 and <= 2100) || value < (moneyField ? 1_000m : 100_000m))
+                    continue;   // a phone number, a year, or a bare small number (a size, a floor, a count)
+            }
+            if (value < 10_000_000_000m)
                 found.Add(Math.Round(value, 0));
         }
         return found;
     }
+
+    /// <summary>An area unit right after a number: "sq ft", "sq. yd", "sqft", "sq m", "gaj", "marla", "kanal", "acre", "bigha".</summary>
+    [GeneratedRegex(@"^\s*(?:sq\.?\s*(?:ft|feet|foot|yd|yds|yard|yards|m|mt|mtr|metre|meter|metres|meters)\b|sqft|sqyd|sqyds|sqm|sq\b|square\b|gaj|gaz|marla|marlas|kanal|kanals|acre|acres|bigha|bighas|biswa|hectare|hectares)",
+        RegexOptions.CultureInvariant)]
+    private static partial Regex AreaAfter();
 
     /// <summary>"3 BHK", "3bhk", "2/3 BHK"; <paramref name="bare"/> = the field is a BHK field, so "3" alone counts.</summary>
     public static IReadOnlyList<int> Bhk(string text, bool bare)
@@ -319,7 +365,7 @@ public static partial class DemandText
     private static bool Words(string text, params string[] words) =>
         words.Any(w => Regex.IsMatch(text, $@"\b{Regex.Escape(w)}s?\b", RegexOptions.CultureInvariant));
 
-    [GeneratedRegex(@"(\d+(?:[.,]\d+)*)\s*(crores|crore|cr|lakhs|lakh|lacs|lac|l|thousand|k)?\b")]
+    [GeneratedRegex(@"(₹|\brs\.?|\binr)?\s*(\d+(?:[.,]\d+)*)\s*(crores|crore|cr|lakhs|lakh|lacs|lac|l|thousand|k)?\b")]
     private static partial Regex Amount();
 
     [GeneratedRegex(@"(\d{1,2})\s*(?:/\s*(\d{1,2}))?\s*bhk", RegexOptions.IgnoreCase)]

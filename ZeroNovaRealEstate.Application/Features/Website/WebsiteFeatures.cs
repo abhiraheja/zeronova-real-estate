@@ -222,8 +222,9 @@ public static class WebsiteListings
         return available <= Math.Max(3, total / 10) ? EstateWebsiteAvailability.FewLeft : EstateWebsiteAvailability.Available;
     }
 
+    /// <summary>A listed property for the public: a hold is the dealer's business, so on hold shows as available.</summary>
     public static EstateWebsitePropertyDto Map(PropertyDocument p) => new(
-        p.Id, p.Slug ?? string.Empty, p.Code, p.Title, p.Purpose, p.Type, p.Status, p.Featured, p.City, p.Locality, p.Society,
+        p.Id, p.Slug ?? string.Empty, p.Code, p.Title, p.Purpose, p.Type, p.Status == PropertyStatus.OnHold ? PropertyStatus.Available : p.Status, p.Featured, p.City, p.Locality, p.Society,
         AreaMath.Dto(p.PlotArea), AreaMath.Dto(p.BuiltUpArea), AreaMath.Dto(p.CarpetArea), AreaMath.Dto(p.SuperArea), p.SizeSqFt, p.FrontFeet, p.DepthFeet,
         p.Price, p.PriceValue is null, p.Negotiable, p.Rent, p.Deposit, p.Maintenance,
         p.Bhk, p.Bathrooms, p.Balconies, p.Floor, p.TotalFloors, p.Lift, p.CoveredParking, p.OpenParking, p.Furnishing, p.AgeYears, p.Construction,

@@ -430,7 +430,10 @@ public sealed record ChargeDto(
     bool Taxable,
     IReadOnlyList<string> UnitTypeIds);
 
-/// <summary>One version of a project's price list (D22). The newest version is the one units are priced from.</summary>
+/// <summary>
+/// One version of a project's price list (D22). The current one — what units are priced from — is the newest whose
+/// <see cref="EffectiveFrom"/> has come (India day); a version dated later is <see cref="Scheduled"/> until its day.
+/// </summary>
 public sealed record PriceListDto(
     string Id,
     string ProjectId,
@@ -439,7 +442,11 @@ public sealed record PriceListDto(
     IReadOnlyList<UnitTypeRateDto> Rates,
     IReadOnlyList<ChargeDto> Charges,
     string? Notes,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt)
+{
+    /// <summary>Its effective day is still to come: stored and shown, not yet pricing the units.</summary>
+    public bool Scheduled { get; init; }
+}
 
 public sealed record PlanStepDto(string Label, decimal? Percent, decimal? Amount, StepDue Due, int? Days, string? MilestoneId, string? MilestoneName);
 
@@ -514,6 +521,9 @@ public sealed record ProjectDto(
 
     /// <summary>The state or UT (C5).</summary>
     public string? State { get; init; }
+
+    /// <summary>The next price list version to take effect (dated later than today), when one is saved; <see cref="PriceList"/> is the current one.</summary>
+    public PriceListDto? ScheduledPriceList { get; init; }
 }
 
 /// <summary>A project in a list (and on the dashboard): what it is and its units by status.</summary>

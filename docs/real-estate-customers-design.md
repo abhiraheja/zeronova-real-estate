@@ -420,3 +420,45 @@ unmet demand is caught from requirements with no match, requirements closed as "
 | D38 | Compliance fixes (built features) | From the 2026-11-10 workflow research: property TDS is **s.393(1) of the Income-tax Act 2025** from 1 Apr 2026 (194-IA before), at ₹50 lakh **or more** counted over the whole deal, on every instalment, 20% without PAN; an **NRI seller** is s.195 with TAN and Form 27Q, not 1%; brokerage TDS (old 194H, now s.393(1)) generally does not apply when the payer is an individual; **Haryana caps brokerage at 1%** (½ + ½); GMADA transfers follow **NDC → sale permission → registry → re-transfer → mutation**, plus LOI transfer (2.5% fee), Chandigarh leasehold (Estate Office permission + unearned increase) and freehold kinds; **GPA** holding carries a "no title" warning; rentals get **police verification** and, in Chandigarh, **Rent Authority intimation within 2 months** with the UIN; parties get **resident / NRI / OCI**, and an NRI or OCI buyer on agricultural land or a farmhouse is warned (FEMA) |
 | D39 | Permissions | Enquiries follow requirements: `PRQM` works one's own, `PRQV` sees everyone's. Customers: `PRQM`/`PRQV` the same way, plus zeronova-lead's own `LEDV` for lead history. Video upload: `PPRM` (property) / `PPJM` (project). No new codes |
 | D40 | Order | **C1** zeronova-lead changes (D35) + Real Estate enquiries from the event, the share-page form, staff "Add enquiry", counts on property/project, the Enquiries screen. **C2** customers list and dashboard. **C3** watched demand, revived matches, one-click message, the unmet-demand report (with E2's empty-search log). **C4** video (zeronova-media client). **C5** compliance fixes and the new agreement templates. **C6** the AI office "record enquiry" tool. Each slice: backend + app + tests |
+
+## 8.3 Review fixes 2026-11-11
+
+After C1–C5 went to dev, a review found these; each has a test in `ReviewFixTests`:
+
+- **Own-capture metadata.** `estate`, `estateSource`, `agentId`, `agentName` are trusted only on our own captures (ref `estate:`).
+  The AI office's (ref `office:`) keeps `estate` and `estateSource = AiOffice`, never an agent. Anyone else's (a website form's
+  extra fields) loses all four, and they are not shown as extras.
+- **Demand signals are bounded.** An empty website search keeps a city or locality only when it is in the company's locality
+  list (as the list spells it, else `*`), names up to 60 characters, and at most 500 criteria rows a company a day. Past that, new
+  criteria count on the day's `other` row. The report reads only the fields it needs, up to 5,000 rows.
+- **Budgets out of free text.** These are never read as amounts: a number before an area unit (sq ft, sq yd, gaj, marla, kanal,
+  acre, bigha), a year from 1990 to 2100, or a phone-like number (10 digits or more). In free text a bare number counts only from
+  ₹1,00,000. Below that it needs ₹ / Rs / INR or lakh / cr / k. A budget field still takes a bare number from ₹1,000. The locality
+  key `area` matches only as the whole key, so `plotArea` is a size, not a place.
+- **C5 bells cut-off.** Police verification and Chandigarh Rent Authority bells ring only for tenancies that start on or after
+  `Rentals:ComplianceBellsFrom` (default **2026-11-11 IST**, the C5 release) or were created on or after it. Older tenancies show
+  the warnings on screen but never all ring at once. A row already rung on dev keeps its flag. When the intimation's window
+  opens for a tenancy outside Chandigarh, the row is marked `rentAuthorityNotApplicable` and not read for it again (cleared on its
+  next save).
+- **One-click message.** A WhatsApp send of a match is refused again within 10 minutes. The idempotency key is
+  `re:{company}:m:{match}:{10-minute slot}`, so a double click sends once. A stale property and a stale (or never confirmed)
+  partner project are refused (D6). Whoever may send it (PRQM or PRQV) may share the listing, so the share fields take PRQV too.
+- **Customer dashboard without PRQV.** The name, phone and numbers come from the caller's own rows. A caller with no row they may
+  see gets a blank answer: no name, phone or leads, and empty lists.
+- **Scheduled price lists.** The current version is the newest whose `effectiveFrom` has come (India day). A later-dated version
+  is stored as `pending`, shown as `scheduled` (`PriceListDto.scheduled`, `ProjectDto.scheduledPriceList`), and prices the units
+  when its day comes. That step runs with the hold sweep, every 10 minutes.
+- **Holds.** Whom a unit is held for is shown only with PRQV or to the member who held it (`holdBy`). The website shows an on-hold
+  property as available.
+- **Re-matching.** A project save (and a price list) re-matches only the unit types whose units changed in what matching reads:
+  price, status, size, place, rooms, facing, the project name, and so on. Not photos or notes.
+- **Races.** Each video takes one of its listing's 3 places (`slot`, unique on the live rows). A parallel upload that loses is
+  refused and its media upload aborted. An enquiry's `E-` number is taken only after its ref's insert wins, so a duplicate never
+  uses one up.
+- **Watch sweep.** One failing row is logged and the sweep goes on.
+- **CP terms** are read with PBRV **or** PBRM, so a PBRM member's save keeps them. **PPJM** reads `estateSettings` and
+  `estateStates`.
+- **Brokerage TDS.** `tdsManual` is true when the saved TDS % was typed in, and false when the rule set it. A save with no TDS %
+  applies the rule again.
+- **Party residency and gender.** `null` keeps the saved value. `clearResidency: true` / `clearGender: true` removes it, back to
+  "not set".

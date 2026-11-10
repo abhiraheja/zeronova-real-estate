@@ -62,6 +62,7 @@ public static class InfrastructureInstaller
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(configuration.GetSection(DocumentsOptions.SectionName).Get<DocumentsOptions>() ?? new DocumentsOptions());
         services.AddSingleton(configuration.GetSection(ShareOptions.SectionName).Get<ShareOptions>() ?? new ShareOptions());
+        services.AddSingleton(configuration.GetSection(RentalOptions.SectionName).Get<RentalOptions>() ?? new RentalOptions());
 
         // Property and project videos (D36): zeronova-media keeps and streams them (client "real-estate", account = the
         // company). A missing key keeps the service up; only the video operations are refused.

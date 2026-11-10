@@ -103,6 +103,22 @@ public sealed class ShareOptions
 }
 
 /// <summary>
+/// Config section <c>"Rentals"</c>. <see cref="ComplianceBellsFrom"/>: the C5 paperwork bells (police verification, Chandigarh's
+/// Rent Authority) ring only for tenancies that start on or after this India day, or were created on or after it — so the
+/// tenancies kept before C5 do not all ring at once on its first run. The default is C5's release, 2026-11-11 (IST); a
+/// test environment may move it.
+/// </summary>
+public sealed class RentalOptions
+{
+    public const string SectionName = "Rentals";
+
+    /// <summary>The C5 release (India day, yyyy-MM-dd).</summary>
+    public const string C5Release = "2026-11-11";
+
+    public string ComplianceBellsFrom { get; set; } = C5Release;
+}
+
+/// <summary>
 /// Config section <c>"Media"</c> — zeronova-media, the video service (D36): its address and this service's key there as
 /// client <see cref="ClientId"/> (<c>real-estate</c>). The key is a secret, <c>zeronovarealestate--Media--ClientKey</c>, the
 /// same value as media's <c>zeronovamedia--Clients--real-estate--Key</c>. The account is always the company. A missing (or

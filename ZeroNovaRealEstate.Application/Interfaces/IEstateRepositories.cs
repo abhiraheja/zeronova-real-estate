@@ -20,7 +20,17 @@ public interface IProjectRepository : ICompanyRepositoryBase<ProjectDocument>;
 
 public interface IUnitTypeRepository : ICompanyRepositoryBase<UnitTypeDocument>;
 
-public interface IPriceListRepository : ICompanyRepositoryBase<PriceListDocument>;
+public interface IPriceListRepository : ICompanyRepositoryBase<PriceListDocument>
+{
+    /// <summary>
+    /// Scheduled versions (<see cref="PriceListDocument.Pending"/>) whose day has come (on or before <paramref name="today"/>),
+    /// across companies — the scheduled price list step's read.
+    /// </summary>
+    Task<IReadOnlyList<PriceListDocument>> ScheduledDueAsync(string today, int take, CancellationToken ct = default);
+
+    /// <summary>Clears <see cref="PriceListDocument.Pending"/> once the units are priced from the version.</summary>
+    Task MarkAppliedAsync(string priceListId, string companyId, CancellationToken ct = default);
+}
 
 public interface IPaymentPlanRepository : ICompanyRepositoryBase<PaymentPlanDocument>;
 
@@ -42,8 +52,12 @@ public interface IRequirementRepository : ICompanyRepositoryBase<RequirementDocu
 /// <summary>Website searches that found nothing (D34), counted per day and criteria.</summary>
 public interface IDemandSignalRepository : ICompanyRepositoryBase<DemandSignalDocument>
 {
-    /// <summary>Adds one to the (day, criteria) row of the company, making it the first time (one atomic upsert).</summary>
-    Task RecordAsync(DemandSignalDocument signal, string companyId, CancellationToken ct = default);
+    /// <summary>
+    /// Adds one to the (day, criteria) row of the company, making it the first time (one atomic upsert). A new row only while
+    /// the company has fewer than <paramref name="maxKeysPerDay"/> that day; past that the count goes on the day's
+    /// <paramref name="overflowKey"/> row (no criteria).
+    /// </summary>
+    Task RecordAsync(DemandSignalDocument signal, string companyId, int maxKeysPerDay, string overflowKey, CancellationToken ct = default);
 }
 
 /// <summary>The Customers list's summaries (C2): one per customer key, replaced whole on every refresh.</summary>
@@ -99,6 +113,9 @@ public interface IEnquiryRepository : ICompanyRepositoryBase<EnquiryDocument>
     /// parallel delivery of the same event). True when written.
     /// </summary>
     Task<bool> AddIfNewAsync(EnquiryDocument enquiry, CancellationToken ct = default, string? companyId = null);
+
+    /// <summary>Gives a written enquiry its number (taken after the write, so a duplicate takes none).</summary>
+    Task SetCodeAsync(string enquiryId, string code, string searchText, CancellationToken ct = default, string? companyId = null);
 }
 
 public interface IDealRepository : ICompanyRepositoryBase<DealDocument>;

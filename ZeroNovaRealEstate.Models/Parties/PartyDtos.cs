@@ -51,11 +51,17 @@ public sealed class PartyInput
     /// <summary>The zeronova-lead contact this person is (C2); empty keeps the stored one for the same lead.</summary>
     public string? ContactId { get; init; }
 
-    /// <summary>Resident, NRI, OCI or foreign national (C5); null keeps the stored value.</summary>
+    /// <summary>Resident, NRI, OCI or foreign national (C5); null keeps the stored value (see <see cref="ClearResidency"/>).</summary>
     public PartyResidency? Residency { get; init; }
 
-    /// <summary>For the stamp duty estimate (C5); null keeps the stored value.</summary>
+    /// <summary>For the stamp duty estimate (C5); null keeps the stored value (see <see cref="ClearGender"/>).</summary>
     public PartyGender? Gender { get; init; }
+
+    /// <summary>True removes the stored residency (back to "not set"); <see cref="Residency"/> is then ignored.</summary>
+    public bool? ClearResidency { get; init; }
+
+    /// <summary>True removes the stored gender (back to "not set"); <see cref="Gender"/> is then ignored.</summary>
+    public bool? ClearGender { get; init; }
 }
 
 /// <summary>A party as members see it: Aadhaar and PAN only as their last four characters; phones only with POWV.</summary>

@@ -121,7 +121,8 @@ public sealed class ProjectMutation(IMediator mediator) : MutationBase
     public Task<ProjectDto> DeleteConstructionUpdate(string projectId, string updateId, CancellationToken ct) =>
         mediator.Send(new DeleteConstructionUpdateCommand(projectId, updateId), ct);
 
-    [RequirePermission(P.PropertyView, P.PropertyManage, P.RequirementManage)]
+    // PRQV too: whoever may send a match's one-click message (PRQM or PRQV) may share its listing.
+    [RequirePermission(P.PropertyView, P.PropertyManage, P.RequirementManage, P.RequirementView)]
     [GraphQLName("ZeroNova_shareEstateProject")]
     public Task<ProjectShareDto> ShareProject(string projectId, string? requirementId, CancellationToken ct) =>
         mediator.Send(new CreateProjectShareCommand(projectId, requirementId), ct);

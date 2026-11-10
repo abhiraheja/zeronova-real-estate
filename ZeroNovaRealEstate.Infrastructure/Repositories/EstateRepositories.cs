@@ -35,7 +35,16 @@ public sealed class UnitTypeRepository(IMongoDatabase database, IRequestContext 
     : CompanyRepositoryBase<UnitTypeDocument>(database, context), IUnitTypeRepository;
 
 public sealed class PriceListRepository(IMongoDatabase database, IRequestContext context)
-    : CompanyRepositoryBase<PriceListDocument>(database, context), IPriceListRepository;
+    : CompanyRepositoryBase<PriceListDocument>(database, context), IPriceListRepository
+{
+    // Deliberately across companies — see the interface. Scheduled versions are few.
+    public async Task<IReadOnlyList<PriceListDocument>> ScheduledDueAsync(string today, int take, CancellationToken ct = default) =>
+        await Collection.Find(l => l.Pending && !l.IsDeleted && l.EffectiveFrom.CompareTo(today) <= 0).Limit(take).ToListAsync(ct);
+
+    public Task MarkAppliedAsync(string priceListId, string companyId, CancellationToken ct = default) =>
+        Collection.UpdateOneAsync(l => l.Id == priceListId && l.CompanyId == companyId, Builders<PriceListDocument>.Update.Set(l => l.Pending, false),
+            cancellationToken: ct);
+}
 
 public sealed class PaymentPlanRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<PaymentPlanDocument>(database, context), IPaymentPlanRepository;
@@ -214,13 +223,25 @@ public sealed class EnquiryRepository(IMongoDatabase database, IRequestContext c
             return false;   // the same event, delivered twice at once; that one stands
         }
     }
+
+    public Task SetCodeAsync(string enquiryId, string code, string searchText, CancellationToken ct = default, string? companyId = null)
+    {
+        var company = ResolveCompanyId(companyId);
+        return Collection.UpdateOneAsync(e => e.Id == enquiryId && e.CompanyId == company,
+            Builders<EnquiryDocument>.Update.Set(e => e.Code, code).Set(e => e.SearchText, searchText), cancellationToken: ct);
+    }
 }
 
 public sealed class DemandSignalRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<DemandSignalDocument>(database, context), IDemandSignalRepository
 {
-    public async Task RecordAsync(DemandSignalDocument signal, string companyId, CancellationToken ct = default)
+    public async Task RecordAsync(DemandSignalDocument signal, string companyId, int maxKeysPerDay, string overflowKey, CancellationToken ct = default)
     {
+        var day = signal.Day;
+        var key = signal.Key;
+        if (key != overflowKey && !await Collection.Find(x => x.CompanyId == companyId && x.Day == day && x.Key == key).AnyAsync(ct)
+            && await Collection.CountDocumentsAsync(x => x.CompanyId == companyId && x.Day == day, new CountOptions { Limit = maxKeysPerDay }, ct) >= maxKeysPerDay)
+            signal = new DemandSignalDocument { Id = string.Empty, Day = day, Key = overflowKey };   // the day is full: counted, without its criteria
         var u = Builders<DemandSignalDocument>.Update;
         var update = u.Inc(x => x.Count, 1)
             .SetOnInsert(x => x.Id, GetNewId).SetOnInsert(x => x.IsDeleted, false).SetOnInsert(x => x.Purpose, signal.Purpose)

@@ -56,8 +56,9 @@ public sealed class SavePartyHandler(
         party.Email = EstateText.Clean(input.Email);
         party.Address = EstateText.Clean(input.Address);
         // C5: null keeps (an app that does not know them yet changes nothing).
-        party.Residency = input.Residency ?? party.Residency;
-        party.Gender = input.Gender ?? party.Gender;
+        // Null keeps; the clear flags remove a value saved before (the only way back to "not set").
+        party.Residency = input.ClearResidency == true ? null : input.Residency ?? party.Residency;
+        party.Gender = input.ClearGender == true ? null : input.Gender ?? party.Gender;
         var (oldContact, oldLead) = (party.ContactId, party.LeadId);
         party.LeadId = EstateText.Clean(input.LeadId);
         // The customer's key (C2): the contact given, else the one kept for this lead, else the lead's as our rows know it.

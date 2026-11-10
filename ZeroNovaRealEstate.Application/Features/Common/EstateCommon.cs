@@ -31,6 +31,9 @@ public sealed class EstateScope(IRequestContext context)
     /// <summary>Tenancies at all (PRNV or PRNM): every one with PRNV, one's own with PRNM only.</summary>
     public bool MayRentals => SeesAllRentals || Has(EstatePermissions.RentalManage);
 
+    /// <summary>The caller's id, or null with no caller (a job).</summary>
+    public string? UserIdOrNull => context.UserId ?? context.AuthUserId;
+
     /// <summary>The caller's ZeroNova user id (the agent id on requirements and matches).</summary>
     public string UserId => context.UserId ?? context.AuthUserId ?? throw new ValidatorException("Your account is not set up yet. Sign in again.");
 

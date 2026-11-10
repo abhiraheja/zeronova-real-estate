@@ -429,6 +429,9 @@ public sealed class BrokerageDocument : CompanyDocumentBase
     [BsonElement("gstPercent")] public decimal GstPercent { get; set; }
     [BsonElement("tdsPercent")] public decimal TdsPercent { get; set; }
 
+    /// <summary>The TDS % was typed in on the last save (false: the rule set it, and a save without one applies the rule again).</summary>
+    [BsonElement("tdsManual")] public bool TdsManual { get; set; }
+
     /// <summary>Who pays (C5); null on a brokerage saved before C5.</summary>
     [BsonElement("payerKind")] [BsonRepresentation(BsonType.String)] [BsonIgnoreIfNull] public Models.Money.PayerKind? PayerKind { get; set; }
     [BsonElement("receipts")] public List<BrokerageReceiptModel> Receipts { get; set; } = [];
@@ -491,6 +494,12 @@ public sealed class TenancyDocument : CompanyDocumentBase
 
     [BsonElement("rentAuthorityUin")] [BsonIgnoreIfNull] public string? RentAuthorityUin { get; set; }
     [BsonElement("rentAuthorityReminded")] public bool RentAuthorityReminded { get; set; }
+
+    /// <summary>
+    /// The rent bells found the property is not in Chandigarh when the intimation's window opened: not read for it again
+    /// (cleared on the tenancy's next save).
+    /// </summary>
+    [BsonElement("rentAuthorityNotApplicable")] public bool RentAuthorityNotApplicable { get; set; }
 }
 
 /// <summary>One state's stamp duty rates (C5), in % — see <see cref="Models.Settings.StampDutyRateDto"/>.</summary>

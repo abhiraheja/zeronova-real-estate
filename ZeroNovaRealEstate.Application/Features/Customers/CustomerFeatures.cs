@@ -142,7 +142,9 @@ public sealed class GetCustomersHandler(ICustomerRepository customers, CustomerB
 /// <summary>
 /// The Real Estate side of a customer's dashboard: by the contact and / or the leads the app read from zeronova-lead (our
 /// own rows add the leads they know). Every list follows its permission (see <see cref="EstateCustomerDashboardDto"/>); a
-/// customer another agent works shows an agent only what is theirs.
+/// customer another agent works shows an agent only what is theirs. Without PRQV the name, phone and numbers on top come
+/// from the caller's own rows only, and a caller with no row of the customer they may see gets a blank answer (no name,
+/// phone or leads; empty lists) — the customer's details are not read through someone else's work.
 /// </summary>
 public sealed record GetCustomerQuery(string? ContactId, IReadOnlyList<string>? LeadIds) : IRequest<EstateCustomerDashboardDto>;
 
@@ -203,7 +205,17 @@ public sealed class GetCustomerHandler(
         var ownedDtos = owned?.SelectMany(p => p.Owners.Where(o => partyIds.Contains(o.PartyId))
             .Select(o => new CustomerOwnedPropertyDto(p.Id, p.Code, p.Title, p.Purpose, p.Status, o.PartyId, o.SharePercent, o.Holding))).ToList();
 
-        var summary = CustomerBook.Summarise(id, rows, now);
+        // Without PRQV: the summary of what the caller may see, and nothing at all when that is nothing.
+        var visible = all
+            ? rows
+            : new CustomerRows
+            {
+                Enquiries = enquiryRows, Requirements = requirementRows, Visits = visitRows, Deals = dealRows ?? [], Tenancies = tenancyRows ?? [],
+                Parties = scope.SeesOwners || dealRows is { Count: > 0 } || tenancyRows is { Count: > 0 } ? rows.Parties : [],
+            };
+        var seesAny = all || (enquiryRows.Count + requirementRows.Count + visitRows.Count + (dealRows?.Count ?? 0) + (tenancyRows?.Count ?? 0)
+            + (owned?.Count ?? 0)) > 0;
+        var summary = seesAny ? CustomerBook.Summarise(id, visible, now) : null;
         var seen = all ? summary?.Totals : summary?.Agents.FirstOrDefault(a => a.AgentId == me);
         var numbers = new EstateCustomerNumbersDto(
             enquiryRows.Count, enquiryRows.Count(e => e.Status != EnquiryStatus.Closed),
@@ -216,7 +228,7 @@ public sealed class GetCustomerHandler(
             dealRows?.GroupBy(d => d.Stage).OrderBy(g => g.Key).Select(g => new CustomerStageCountDto(g.Key, g.Count())).ToList(),
             tenancyRows?.Count, owned?.Count, unmet.Count);
 
-        return new EstateCustomerDashboardDto(id.ContactId, id.LeadIds, summary?.Name, summary?.Phone ?? (scope.SeesOwners ? summary?.PartyPhone : null), highlighted,
+        return new EstateCustomerDashboardDto(id.ContactId, seesAny ? id.LeadIds : [], summary?.Name, summary?.Phone ?? (scope.SeesOwners ? summary?.PartyPhone : null), highlighted,
             GetCustomersHandler.Utc(seen?.LastActivityAt), numbers,
             [.. enquiryRows.Select(EnquiryMapping.ToDto)],
             [.. requirementDtos.Select(r => new CustomerRequirementDto(r, matchTotals.GetValueOrDefault(r.Id),

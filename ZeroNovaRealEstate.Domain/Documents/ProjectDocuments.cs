@@ -234,6 +234,12 @@ public sealed class PriceListDocument : CompanyDocumentBase
     [BsonElement("charges")] public List<ChargeModel> Charges { get; set; } = [];
     [BsonElement("notes")] public string? Notes { get; set; }
     [BsonElement("createdAt")] public DateTime CreatedAt { get; set; }
+
+    /// <summary>
+    /// Saved for a later day (<see cref="EffectiveFrom"/> after the India day it was saved): the units are priced from it once
+    /// that day comes (the scheduled price list step, run with the hold sweep), then this is cleared.
+    /// </summary>
+    [BsonElement("pending")] public bool Pending { get; set; }
 }
 
 public sealed class PlanStepModel

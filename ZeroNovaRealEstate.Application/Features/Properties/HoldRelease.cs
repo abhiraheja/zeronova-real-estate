@@ -21,6 +21,7 @@ public sealed class HoldRelease(IPropertyRepository properties, MatchEngine engi
             property.HoldUntil = null;
             property.HoldLeadId = null;
             property.HoldLeadName = null;
+            property.HoldBy = null;
             await properties.UpdateAsync(property, ct, property.CompanyId);
             await engine.ForPropertyAsync(property, ct, property.CompanyId);
             logger.LogInformation("Hold on {Code} of company {CompanyId} ended; available again.", property.Code, property.CompanyId);

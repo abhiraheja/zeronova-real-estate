@@ -80,12 +80,12 @@ public sealed class EstateQuery(IMediator mediator) : QueryBase
 
     // ── Settings, fields, localities, dashboard
 
-    [RequirePermission(P.PropertyView, P.PropertyManage, P.RequirementView, P.RequirementManage, P.SettingsManage)]
+    [RequirePermission(P.PropertyView, P.PropertyManage, P.ProjectManage, P.RequirementView, P.RequirementManage, P.SettingsManage)]
     [GraphQLName("ZeroNova_estateSettings")]
     public Task<EstateSettingsDto> Settings(CancellationToken ct) => mediator.Send(new GetEstateSettingsQuery(), ct);
 
     /// <summary>India's states and union territories (C5), for the property, project and settings pickers; any other name can be typed.</summary>
-    [RequirePermission(P.PropertyView, P.PropertyManage, P.SettingsManage)]
+    [RequirePermission(P.PropertyView, P.PropertyManage, P.ProjectManage, P.SettingsManage)]
     [GraphQLName("ZeroNova_estateStates")]
     public IReadOnlyList<string> States() => ZeroNovaRealEstate.Application.Features.Common.EstateStates.All;
 

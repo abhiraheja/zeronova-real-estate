@@ -27,6 +27,12 @@ public sealed class EstateVideoDocument : CompanyDocumentBase
     [BsonElement("durationSeconds")] public double? DurationSeconds { get; set; }
     [BsonElement("posterUrl")] public string? PosterUrl { get; set; }
     [BsonElement("sortOrder")] public int SortOrder { get; set; }
+
+    /// <summary>
+    /// Which of the listing's places (0 to max − 1) the video takes. One video a place (a unique index on the live rows), so
+    /// two uploads started at once cannot both take the last place. Rows from before the fix have none.
+    /// </summary>
+    [BsonElement("slot")] [BsonIgnoreIfNull] public int? Slot { get; set; }
     [BsonElement("addedAt")] public DateTime AddedAt { get; set; }
     [BsonElement("fileName")] public string? FileName { get; set; }
     [BsonElement("sizeBytes")] public long SizeBytes { get; set; }

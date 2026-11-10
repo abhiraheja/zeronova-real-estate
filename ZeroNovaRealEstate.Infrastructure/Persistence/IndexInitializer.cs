@@ -329,7 +329,26 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                     new CreateIndexOptions { Name = "company_listing_order" }),
                 new CreateIndexModel<EstateVideoDocument>(Builders<EstateVideoDocument>.IndexKeys.Ascending(v => v.CompanyId).Ascending(v => v.VideoId),
                     new CreateIndexOptions { Name = "company_video_unique", Unique = true }),
+                // At most MaxPerListing a listing, atomically: one live video a place.
+                new CreateIndexModel<EstateVideoDocument>(Builders<EstateVideoDocument>.IndexKeys
+                    .Ascending(v => v.CompanyId).Ascending(v => v.ListingKind).Ascending(v => v.ListingId).Ascending(v => v.Slot),
+                    new CreateIndexOptions<EstateVideoDocument>
+                    {
+                        Name = "company_listing_slot_unique",
+                        Unique = true,
+                        PartialFilterExpression = Builders<EstateVideoDocument>.Filter.Type(v => v.Slot, BsonType.Int32)
+                            & Builders<EstateVideoDocument>.Filter.Eq(v => v.IsDeleted, false),
+                    }),
             ], ct);
+
+            // Scheduled price lists (review fixes 2026-11-11): the versions still to take effect, by day.
+            await priceLists.Indexes.CreateOneAsync(new CreateIndexModel<PriceListDocument>(
+                Builders<PriceListDocument>.IndexKeys.Ascending(l => l.Pending).Ascending(l => l.EffectiveFrom),
+                new CreateIndexOptions<PriceListDocument>
+                {
+                    Name = "pending_effective",
+                    PartialFilterExpression = Builders<PriceListDocument>.Filter.Eq(l => l.Pending, true),
+                }), cancellationToken: ct);
 
             var counters = database.GetCollection<CounterDocument>("re_counters");
             await counters.Indexes.CreateOneAsync(new CreateIndexModel<CounterDocument>(

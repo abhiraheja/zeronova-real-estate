@@ -47,7 +47,7 @@ public sealed class PropertyMapper(
         var projectVideos = await videos.OfAsync(Models.Videos.EstateListingKind.Project, [.. rows.Select(p => p.ProjectId).OfType<string>()], false, null, ct);
 
         var now = clock.GetUtcNow().UtcDateTime;
-        return [.. rows.Select(p => Map(p, s, labels, owners, counts.GetValueOrDefault(p.Id), scope.SeesOwners, now) with
+        return [.. rows.Select(p => Map(p, s, labels, owners, counts.GetValueOrDefault(p.Id), scope.SeesOwners, Projects.ProjectUnits.MaySeeHold(p, scope), now) with
         {
             Enquiries = Enquiries.EnquiryCounts.Of(enquiryCounts, p.Id),
             Videos = [.. (p.ProjectId is { } project ? projectVideos[project] : ownVideos[p.Id]).Select(Videos.EstateVideoBook.Dto)],
@@ -58,7 +58,7 @@ public sealed class PropertyMapper(
     }
 
     private static PropertyDto Map(PropertyDocument p, EstateSettingsDocument s, IReadOnlyDictionary<string, string> labels,
-        IReadOnlyDictionary<string, PartyDocument> owners, int openMatches, bool seesOwners, DateTime now) => new(
+        IReadOnlyDictionary<string, PartyDocument> owners, int openMatches, bool seesOwners, bool seesHold, DateTime now) => new(
         p.Id, p.Code, p.Title, p.Purpose, p.Type, p.Status, p.HoldUntil, EstateSettings.IsStale(p, s, now),
         new DateTimeOffset(DateTime.SpecifyKind(p.LastConfirmedAt, DateTimeKind.Utc)), p.ConfirmedVia,
         p.City, p.Locality, p.Society, p.Block, seesOwners || p.ProjectId is not null ? p.UnitNumber : null, p.Latitude, p.Longitude,
@@ -79,7 +79,7 @@ public sealed class PropertyMapper(
             seesOwners ? owners.GetValueOrDefault(o.PartyId)?.Phone : null, o.SharePercent, o.Holding))],
         [.. p.History.Select(h => new Models.Deals.OwnershipRecordDto(h.FromNames, h.ToNames, h.Kind, h.Date, h.Note, h.DealId))],
         openMatches, p.CreatedBy?.ChangedDate,
-        p.ProjectId, p.ProjectId is null ? null : p.Society, p.UnitTypeId, p.UnitTypeName, p.Tower, p.OwnPrice, p.HoldLeadId, p.HoldLeadName,
+        p.ProjectId, p.ProjectId is null ? null : p.Society, p.UnitTypeId, p.UnitTypeName, p.Tower, p.OwnPrice, seesHold ? p.HoldLeadId : null, seesHold ? p.HoldLeadName : null,
         p.ShowOnWebsite, p.Featured, p.Slug, p.Description);
 }
 

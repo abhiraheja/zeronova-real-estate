@@ -71,6 +71,8 @@ public sealed class SchemaTests
             "residency: PartyResidency", "gender: PartyGender", "FOREIGN_NATIONAL", "OCI", "payerKind: PayerKind", "INDIVIDUAL_OR_HUF", "COMPANY_OR_FIRM",
             "tdsNote: String", "defaultState: String", "dealerPan: String", "stampDutyRates: [StampDutyRateDto!]!", "StampDutyRateInput", "RURAL",
             "typicalDays: Int", "hint: String", "step: Int", "rural: Boolean", "state: String", "warnings: [String!]!",
+            // Review fixes 2026-11-11: scheduled price lists, the typed TDS, clearing a party's residency or gender.
+            "scheduled: Boolean!", "scheduledPriceList: PriceListDto", "tdsManual: Boolean!", "clearResidency: Boolean", "clearGender: Boolean",
         })
             Assert.Contains(field, sdl);
 
