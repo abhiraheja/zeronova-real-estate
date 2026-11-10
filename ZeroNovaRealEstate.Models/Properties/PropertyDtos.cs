@@ -157,6 +157,13 @@ public sealed class PropertyInput
 
     // ── Where
     public string? City { get; init; }
+
+    /// <summary>The state or UT (C5): Punjab, Haryana, Chandigarh or any other; empty = the company's default state.</summary>
+    public string? State { get; init; }
+
+    /// <summary>Outside municipal limits (C5) — Haryana's lower rural stamp duty; null keeps the stored value, false = urban.</summary>
+    public bool? Rural { get; init; }
+
     public string Locality { get; init; } = string.Empty;
     public string? Society { get; init; }
     public string? Block { get; init; }
@@ -413,6 +420,15 @@ public sealed record PropertyDto(
 
     /// <summary>Its videos (D36), in order, every status; a project unit shows its project's.</summary>
     public IReadOnlyList<ZeroNovaRealEstate.Models.Videos.EstateVideoDto> Videos { get; init; } = [];
+
+    /// <summary>The state or UT (C5); a project unit takes its project's. Null = not set (the company's default state applies).</summary>
+    public string? State { get; init; }
+
+    /// <summary>Outside municipal limits (C5): rural stamp duty rates where a state has them.</summary>
+    public bool Rural { get; init; }
+
+    /// <summary>What to look at before dealing in it (C5): an owner holding by GPA, for one.</summary>
+    public IReadOnlyList<string> Warnings { get; init; } = [];
 }
 
 public enum PropertySort

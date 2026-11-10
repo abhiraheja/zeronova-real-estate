@@ -7,8 +7,12 @@ using ZeroNovaRealEstate.Models.Money;
 
 namespace ZeroNovaRealEstate.Application.Features.Brokerage;
 
-/// <summary>Brokerages with their deal, property and party named, and the money worked out.</summary>
-public sealed class BrokerageMapper(IDealRepository deals, IPropertyRepository properties, IPartyRepository parties)
+/// <summary>
+/// Brokerages with their deal, property and party named, and the money worked out. C5: the TDS section by the invoice
+/// date and why TDS is or is not shown; Haryana's 1% cap over the deal's sides.
+/// </summary>
+public sealed class BrokerageMapper(IDealRepository deals, IPropertyRepository properties, IPartyRepository parties, IBrokerageRepository brokerages,
+    IEstateSettingsRepository settings)
 {
     public async Task<BrokerageDto> OneAsync(BrokerageDocument row, CancellationToken ct) => (await ManyAsync([row], ct))[0];
 
@@ -22,6 +26,8 @@ public sealed class BrokerageMapper(IDealRepository deals, IPropertyRepository p
         var props = (await properties.GetDocuments(p => propertyIds.Contains(p.Id), true).ToListAsync(ct)).ToDictionary(p => p.Id);
         var partyIds = rows.Select(r => r.PartyId).OfType<string>().Distinct().ToList();
         var names = (await parties.GetDocuments(p => partyIds.Contains(p.Id), true).ToListAsync(ct)).ToDictionary(p => p.Id, p => p.Name);
+        var s = await EstateSettings.LoadAsync(settings, ct);
+        var sides = (await brokerages.GetDocuments(b => dealIds.Contains(b.DealId)).ToListAsync(ct)).ToLookup(b => b.DealId);
 
         return [.. rows.Select(r =>
         {
@@ -36,9 +42,25 @@ public sealed class BrokerageMapper(IDealRepository deals, IPropertyRepository p
             return new BrokerageDto(r.Id, r.InvoiceNo, r.DealId, deal?.Code ?? "—", property?.Code ?? "—", property?.Title ?? "—", r.Side, r.PartyId,
                 r.PartyId is { } pid ? names.GetValueOrDefault(pid) : null, r.Basis, r.Rate, r.Amount, r.GstPercent, gst, r.Amount + gst, r.TdsPercent, tds,
                 receivable, [.. r.Receipts.Select(x => new BrokerageReceiptDto(x.Amount, x.Mode, x.Reference, x.Date))], received, due, status, r.Notes,
-                new DateTimeOffset(DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc)));
+                new DateTimeOffset(DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc)))
+            {
+                PayerKind = r.PayerKind,
+                TdsSection = r.TdsPercent > 0 ? Deals.BrokerageTds.Section(Deals.BrokerageTds.InvoiceDay(r)) : null,
+                TdsNote = TdsNote(r, s),
+                Warnings = deal is null || property is null ? []
+                    : Deals.HaryanaBrokerageCap.Warnings(deal, EstateStates.Of(property, s), sides[deal.Id].Select(x => x.Id == r.Id ? r : x), r),
+            };
         })];
     }
+
+    private static string? TdsNote(BrokerageDocument r, EstateSettingsDocument s) => (r.PayerKind, r.TdsPercent) switch
+    {
+        (Models.Money.PayerKind.IndividualOrHuf, 0m) => Deals.BrokerageTds.IndividualNote,
+        (Models.Money.PayerKind.CompanyOrFirm, 0m) => "TDS starts once this payer's brokerage to you in the financial year is over ₹20,000.",
+        (Models.Money.PayerKind.CompanyOrFirm, 20m) when !Deals.BrokerageTds.DealerHasPan(s) =>
+            "20% because your PAN is not in the settings — add your PAN (or GSTIN) and the payer deducts 2%.",
+        _ => null,
+    };
 }
 
 /// <summary>The brokerage bill's text (the <c># heading</c> line language of the agreements), and what is missing from it.</summary>
@@ -93,7 +115,8 @@ public sealed class BrokerageBook(IDealRepository deals, IPropertyRepository pro
         }
         lines.Add($"Total: {IndianWords.Figures(total)} ({IndianWords.Rupees(total)})");
         if (row.TdsPercent > 0)
-            lines.Add($"Less TDS {row.TdsPercent:0.##}% (section 194H): {IndianWords.Figures(BrokerageMath.Tds(row))} — payable {IndianWords.Figures(BrokerageMath.Receivable(row))}");
+            lines.Add($"Less TDS {row.TdsPercent:0.##}% ({Deals.BrokerageTds.Section(Deals.BrokerageTds.InvoiceDay(row))}): {IndianWords.Figures(BrokerageMath.Tds(row))} — "
+                + $"payable {IndianWords.Figures(BrokerageMath.Receivable(row))}");
         foreach (var r in row.Receipts)
             lines.Add($"Received {IndianWords.Figures(r.Amount)} by {r.Mode}{(r.Reference is { } rf ? " " + rf : string.Empty)} on {IndianWords.ShortDate(r.Date)}");
         lines.Add(string.Empty);

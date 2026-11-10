@@ -117,9 +117,13 @@ public sealed class BuildAgreementHandler(AgreementSource source) : IRequestHand
     }
 }
 
-/// <summary>A deal, its values and warnings, and the template asked for — what preview and build share.</summary>
-public sealed class AgreementSource(IDealRepository deals, IPropertyRepository properties, IPartyRepository parties, IEstateSettingsRepository settings,
-    IAgreementTemplateRepository templates, ISecretProtector secrets, EstateScope scope, IRequestContext context)
+/// <summary>
+/// A deal, its values and warnings, and the template asked for — what preview and build share. The warnings are the
+/// deal's checks (C5: TDS section and rate, s.195, FEMA, GPA, Haryana's brokerage cap) and the template's own (a lease
+/// with no tenancy, a registered lease for 11 months or less).
+/// </summary>
+public sealed class AgreementSource(IDealRepository deals, IPropertyRepository properties, IPartyRepository parties, ITenancyRepository tenancies,
+    IAgreementTemplateRepository templates, ISecretProtector secrets, EstateScope scope, IRequestContext context, DealCheckSource checks)
 {
     public async Task<(DealDocument Deal, AgreementValues Values, IReadOnlyList<string> Warnings, BuiltInTemplates.Template? BuiltIn, AgreementTemplateDocument? Own)>
         LoadAsync(string dealId, string templateId, CancellationToken ct)
@@ -131,16 +135,31 @@ public sealed class AgreementSource(IDealRepository deals, IPropertyRepository p
         var ids = deal.SellerIds.Concat(deal.BuyerIds).Concat(deal.Payments.Select(p => p.PayerPartyId).OfType<string>())
             .Concat(property.Owners.Select(o => o.PartyId)).Distinct().ToList();
         var people = (await parties.GetDocuments(p => ids.Contains(p.Id), true).ToListAsync(ct)).ToDictionary(p => p.Id);
-        var s = await EstateSettings.LoadAsync(settings, ct);
+        var (s, brokerages, today) = await checks.LoadAsync([deal.Id], ct);
+        var tenancy = deal.Kind == Models.Properties.PropertyPurpose.Rent
+            ? await tenancies.GetDocuments(t => t.DealId == deal.Id).OrderByDescending(t => t.Id).FirstOrDefaultAsync(ct)
+            : null;
 
         var builtIn = BuiltInTemplates.Find(templateId);
         var own = builtIn is null
             ? await templates.GetDocument(templateId).FirstOrDefaultAsync(ct) ?? throw new ValidatorException("Template not found.")
             : null;
         var company = context.CompanyId ?? throw new ValidatorException("No active company. Select a company first.");
-        var warnings = DealChecks.Warnings(deal, property, people).ToList();
+        var warnings = DealChecks.Warnings(deal, property, people, DealCheckContext.For(property, s, brokerages?[deal.Id].ToList(), today)).ToList();
         if (!secrets.IsConfigured && people.Values.Any(p => p.AadhaarSealed is not null))
             warnings.Add("Aadhaar numbers cannot be opened yet (encryption not set up) — fill them by hand in Word.");
-        return (deal, AgreementEngine.Values(deal, property, people, s, secrets, company), warnings, builtIn, own);
+        var kind = builtIn?.Kind ?? own!.Kind;
+        if (kind is AgreementKind.CommercialLease or AgreementKind.RegisteredLease)
+        {
+            if (deal.Kind != Models.Properties.PropertyPurpose.Rent)
+                warnings.Add($"{deal.Code} is a sale — a lease is for a rent deal.");
+            else if (tenancy is null)
+                warnings.Add("No tenancy is saved for this deal — the term, lock-in, escalation and due day are left blank. Save the tenancy first.");
+            if (kind == AgreementKind.RegisteredLease && tenancy is { Months: <= 11 })
+                warnings.Add($"The tenancy is for {tenancy.Months} months — the 11-month rent agreement needs no registration; this lease is for longer terms.");
+            if (kind == AgreementKind.CommercialLease && tenancy is not null && tenancy.PermittedUse is null)
+                warnings.Add("The lease's use clause is blank — enter the permitted use on the tenancy.");
+        }
+        return (deal, AgreementEngine.Values(deal, property, people, s, secrets, company, today, tenancy), warnings, builtIn, own);
     }
 }

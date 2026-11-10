@@ -30,13 +30,42 @@ public sealed record EstateSettingsDto(
     decimal RentBrokerageMonths,
     int WatchDays = 90,
     string? MatchTemplateName = null,
-    string? MatchTemplateLanguage = null);
+    string? MatchTemplateLanguage = null)
+{
+    /// <summary>The company's state or UT (C5): a property or project without its own takes it.</summary>
+    public string? DefaultState { get; init; }
+
+    /// <summary>The dealer's own PAN (C5): without it (or a GSTIN) a business payer deducts 20% TDS on brokerage, not 2%.</summary>
+    public string? DealerPan { get; init; }
+
+    /// <summary>The stamp duty rates the deal estimate uses (C5) — the defaults until the dealer saves their own.</summary>
+    public IReadOnlyList<StampDutyRateDto> StampDutyRates { get; init; } = [];
+}
+
+/// <summary>
+/// One state's stamp duty rates for the deal estimate (C5), in % of the price: men, women (every buyer a woman), joint
+/// (men and women together), and registration. <see cref="Area"/>: Urban or Rural where the state differs (Haryana);
+/// null = the whole state. A null rate = not known (Chandigarh ships blank: unverified).
+/// </summary>
+public sealed record StampDutyRateDto(string State, StampDutyArea? Area, decimal? MenPercent, decimal? WomenPercent, decimal? JointPercent,
+    decimal? RegistrationPercent, string? Note);
+
+public sealed record StampDutyRateInput(string State, StampDutyArea? Area, decimal? MenPercent, decimal? WomenPercent, decimal? JointPercent,
+    decimal? RegistrationPercent, string? Note);
+
+public enum StampDutyArea
+{
+    Urban,
+    Rural,
+}
 
 /// <summary>
 /// The settings to save. The C3 fields keep the stored value when null (an app that does not know them yet changes
 /// nothing): <see cref="WatchDays"/> — how long a requirement closed as not available is watched (D33, 1–365, default 90);
 /// <see cref="MatchTemplateName"/> — the company's approved WhatsApp template (in zeronova-social) for "property now
 /// available", empty to stop using one; <see cref="MatchTemplateLanguage"/> — its language code (<c>en</c>, <c>hi</c>).
+/// C5, null keeps too: <see cref="DefaultState"/> (empty clears), <see cref="DealerPan"/> (empty clears),
+/// <see cref="StampDutyRates"/> (an empty list goes back to the defaults).
 /// </summary>
 public sealed record EstateSettingsInput(
     decimal MarlaSqFt,
@@ -59,7 +88,10 @@ public sealed record EstateSettingsInput(
     decimal RentBrokerageMonths = 1m,
     int? WatchDays = null,
     string? MatchTemplateName = null,
-    string? MatchTemplateLanguage = null);
+    string? MatchTemplateLanguage = null,
+    string? DefaultState = null,
+    string? DealerPan = null,
+    IReadOnlyList<StampDutyRateInput>? StampDutyRates = null);
 
 public enum CustomFieldKind
 {

@@ -141,12 +141,7 @@ public sealed class SetDealStageHandler(IDealRepository deals, IPropertyReposito
                     FromPartyIds = deal.SellerIds, ToPartyIds = deal.BuyerIds, FromNames = [.. deal.SellerIds.Select(id => names.GetValueOrDefault(id) ?? "—")],
                     ToNames = [.. deal.BuyerIds.Select(id => names.GetValueOrDefault(id) ?? "—")], Kind = deal.TransferKind, Date = today, DealId = deal.Id,
                 });
-                var holding = deal.TransferKind switch
-                {
-                    TransferKind.BuilderAllotment => HoldingKind.BuilderAllotment,
-                    TransferKind.AuthorityPlot => HoldingKind.AuthorityAllotment,
-                    _ => HoldingKind.RegisteredSaleDeed,
-                };
+                var holding = Checklists.HoldingAfter(deal.TransferKind);
                 var shares = Properties.SetPropertyOwnersHandler.Shares([.. deal.BuyerIds.Select(id => new PropertyOwnerInput(id, null, holding))]);
                 property.Owners = [.. deal.BuyerIds.Zip(shares, (id, share) => new OwnerModel { PartyId = id, SharePercent = share, Holding = holding })];
                 property.OwnerPhones = [.. (await parties.GetDocuments(p => deal.BuyerIds.Contains(p.Id)).Select(p => p.Phone).ToListAsync(ct)).OfType<string>()];
@@ -253,26 +248,63 @@ public sealed class AddOwnershipRecordHandler(IPropertyRepository properties) : 
     }
 }
 
-/// <summary>The transfer steps for each kind (design 10.10).</summary>
+/// <summary>
+/// The transfer steps for each kind (design 10.10). C5 (D38): an authority (GMADA) property's steps go in order — NDC →
+/// sale permission → registry → re-transfer → mutation — with the usual days as hints; GMADA LOI transfer, Chandigarh
+/// leasehold and Chandigarh freehold are kinds of their own. A deal keeps the checklist it was made with.
+/// </summary>
 public static class Checklists
 {
+    private const string TdsLabel = "TDS deposited and certificate given (Form 26QB and 16B; 27Q and 16A for a non-resident seller)";
+
     public static List<ChecklistItemModel> For(TransferKind kind) => kind switch
     {
         TransferKind.BuilderAllotment =>
         [
             Item("builder_no_dues", "Builder no-dues certificate"), Item("builder_noc", "Builder NOC for transfer"), Item("transfer_fee", "Transfer fee paid"),
             Item("affidavits", "Buyer affidavits and indemnity"), Item("fresh_allotment", "Fresh allotment letter / BBA in buyer's name"),
-            Item("tds", "1% TDS deposited and challan given"), Item("possession", "Possession and documents handed over"), Item("conveyance", "Conveyance deed (later)"),
+            Item("tds", TdsLabel), Item("possession", "Possession and documents handed over"), Item("conveyance", "Conveyance deed (later)"),
         ],
         TransferKind.AuthorityPlot =>
         [
-            Item("ndc", "No Due Certificate"), Item("noc", "NOC / permission for sale"), Item("tds", "1% TDS deposited and challan given"),
-            Item("registry", "Sale deed registered"), Item("re_transfer", "Re-transfer in authority records"), Item("possession", "Possession handed over"),
+            Step(1, "ndc", "No Due Certificate (NDC) from GMADA / the authority", 15, "About 15 working days. All dues must be clear — check the property's ledger and status first."),
+            Step(2, "sale_permission", "Sale permission from GMADA / the authority", 10, "About 10 days."),
+            Step(3, "registry", "Sale deed registered at the Sub-Registrar", null,
+                "Note the deed (vasika) number. Punjab's Easy Registry: any Sub-Registrar in the district, an online slot."),
+            Step(4, "re_transfer", "Re-transfer in GMADA / authority records", 5,
+                "About 5 working days: the re-transfer form and a certified copy of the deed. The registry alone does not make the buyer the authority's recognised holder."),
+            Step(5, "mutation", "Mutation (intkal) in the revenue record", 30, "Note the mutation number. Punjab's online intkal aims at about 30 days after the registry."),
+            Item("tds", TdsLabel), Item("possession", "Possession handed over"),
+        ],
+        TransferKind.GmadaLoi =>
+        [
+            Step(1, "ndc", "No Due Certificate (NDC) from GMADA", 15, "About 15 working days. All instalments of the LOI must be paid."),
+            Step(2, "loi_transfer", "LOI transfer by GMADA", 21,
+                "About 21 working days. Fee about 2.5% of the allotment price (not the market price; PUDA booklet 2019 — the fees change every year). A land-pooling LOI has no allotment price: ask GMADA."),
+            Step(3, "loi_letter", "LOI / allotment papers in the buyer's name", null, null),
+            Item("tds", TdsLabel), Item("documents", "Original LOI, receipts and papers handed over"),
+        ],
+        TransferKind.ChandigarhLeasehold =>
+        [
+            Step(1, "estate_permission", "Transfer permission from the Estate Office", null, "The Sub-Registrar will not register a leasehold sale deed without it."),
+            Step(2, "unearned_increase", "Unearned increase paid to the Estate Office", null,
+                "About one-third of the rise in value since allotment — estimate it before the price is fixed."),
+            Step(3, "registry", "Sale deed registered at the Sub-Registrar", null, "Note the deed number."),
+            Step(4, "mutation", "Mutation in the Estate Office records", null, "The Estate Office mutates from the registered deed — check it is done."),
+            Item("tds", TdsLabel), Item("possession", "Possession handed over"),
+        ],
+        TransferKind.ChandigarhFreehold =>
+        [
+            Step(1, "conveyance", "Seller's conveyance deed from the Estate Office checked", null,
+                "A freehold property passes by a registered deed only once the seller holds the Estate Office's conveyance deed; some co-operative society flats have none."),
+            Step(2, "registry", "Sale deed registered at the Sub-Registrar", null, "Note the deed number."),
+            Step(3, "mutation", "Mutation in the Estate Office records", null, "The Estate Office mutates from the registered deed — check it is done."),
+            Item("tds", TdsLabel), Item("possession", "Possession handed over"),
         ],
         TransferKind.Registered =>
         [
             Item("title", "Title chain and encumbrance certificate checked"), Item("loan", "Seller's loan closed / bank NOC"),
-            Item("tds", "1% TDS deposited and challan given"), Item("registry", "Sale deed registered"), Item("mutation", "Mutation done"),
+            Item("tds", TdsLabel), Item("registry", "Sale deed registered"), Item("mutation", "Mutation done"),
             Item("possession", "Possession handed over"),
         ],
         _ =>
@@ -282,7 +314,18 @@ public static class Checklists
         ],
     };
 
+    /// <summary>How the buyers hold the property once the deal completes.</summary>
+    public static HoldingKind HoldingAfter(TransferKind kind) => kind switch
+    {
+        TransferKind.BuilderAllotment => HoldingKind.BuilderAllotment,
+        TransferKind.AuthorityPlot or TransferKind.GmadaLoi or TransferKind.ChandigarhLeasehold => HoldingKind.AuthorityAllotment,
+        _ => HoldingKind.RegisteredSaleDeed,
+    };
+
     private static ChecklistItemModel Item(string key, string label) => new() { Key = key, Label = label };
+
+    private static ChecklistItemModel Step(int step, string key, string label, int? days, string? hint) =>
+        new() { Key = key, Label = label, Step = step, TypicalDays = days, Hint = hint };
 }
 
 internal static class DealLookup

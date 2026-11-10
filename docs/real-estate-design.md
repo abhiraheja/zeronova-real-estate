@@ -164,15 +164,27 @@ newest, price, size or last confirmed. Natural-language search ("3 bhk sector 70
 - **M3 Deals, transfers, agreements:** a deal joins a property, its sellers (current owners) and buyers (parties,
   several each side); stages offer → token → agreement → transfer → registry; payments received (mode, UTR/cheque,
   bank, date, payer) and the balance schedule; the transfer checklist by kind (builder flat: no-dues, NOC, transfer
-  fee, affidavits, fresh allotment/BBA, conveyance; authority plot: NDC, NOC, re-transfer, conveyance; registered:
-  registry, mutation, EC); on completion the buyers become the owners and the sellers move into the history.
+  fee, affidavits, fresh allotment/BBA, conveyance; authority plot (GMADA), in order since C5: NDC (~15 working days) →
+  sale permission (~10) → registry at the Sub-Registrar → re-transfer (~5) → mutation (~30); GMADA LOI transfer (NDC →
+  LOI transfer, ~21 working days, fee ~2.5% of the allotment price); Chandigarh leasehold (Estate Office permission →
+  unearned increase → registry → mutation); Chandigarh freehold (the seller's conveyance deed → registry → mutation);
+  registered: registry, mutation, EC); on completion the buyers become the owners and the sellers move into the history.
   **Agreement builder:** the owner's Format A and Format B as ready templates, the dealer's own Word templates with
   placeholders, filled from the deal, checks (every current owner signs, sums add up, dates agree, no duplicate
-  UTR, empty fields, 1% TDS on the full price above ₹50 lakh, cash lines warned), output Word on legal paper, sent on
-  WhatsApp.
+  UTR, empty fields, cash lines warned; C5: property TDS when the whole deal is **₹50 lakh or more**, on **every
+  payment** including the token, under **s.393(1) of the Income-tax Act 2025** from 1 Apr 2026 (s.194-IA before), 1% per
+  seller's share or 20% without a PAN, a non-resident seller under s.195 (TAN, Form 27Q) with no rate; FEMA for an NRI /
+  OCI buyer of farm land or a farmhouse; GPA gives no title (Suraj Lamp); GMADA steps out of order; Haryana's brokerage
+  cap), output Word on legal paper, sent on WhatsApp. C5 adds a stamp duty estimate (state, urban/rural, the buyers'
+  genders; rates in the settings). Details: `real-estate-customers-design.md`, "C5 built".
 - **M4 Brokerage and rentals:** brokerage per side with GST and TDS, invoice, received and due, staff without `PBRV`
   never see it; rentals with tenant, rent, deposit, start, term, renewal, rent reminders and receipts on WhatsApp, rent
-  agreement from a template.
+  agreement from a template. C5: brokerage TDS by **who pays** — none from an individual or HUF by default; 2% (20% when
+  the dealer has no PAN on record) from a company or firm over ₹20,000 a year, under s.393(1) (Table Sl. 1(ii)) from
+  1 Apr 2026 (s.194H before); a property in **Haryana** warns over 1% in all or 0.5% a side. Rentals get **police
+  verification** (date, station, reference, the form; a bell once the tenancy starts) and, in **Chandigarh**, the **Rent
+  Authority intimation** due 2 months after the agreement (done date, UIN, a bell 15 days before). Leases: a **commercial
+  lease** and a **registered lease (over 11 months)** besides the 11-month rent agreement.
 - **M5:** listing website, AI office, copilot search, portal leads; co-broking between ZeroNova dealers.
 
 ## 6. Open items

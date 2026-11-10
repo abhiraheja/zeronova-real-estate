@@ -26,11 +26,13 @@ public static partial class AgreementEngine
 
     // ── Values ───────────────────────────────────────────────────────────────────────────────────────
 
+    /// <param name="tenancy">The tenancy made from this rent deal, if any — the lease templates' term, lock-in, escalation and deposit (C5).</param>
     public static AgreementValues Values(DealDocument d, PropertyDocument p, IReadOnlyDictionary<string, PartyDocument> people, EstateSettingsDocument s,
-        ISecretProtector secrets, string companyId)
+        ISecretProtector secrets, string companyId, string today, TenancyDocument? tenancy = null)
     {
         var sellers = d.SellerIds.Select(id => people.GetValueOrDefault(id)).OfType<PartyDocument>().ToList();
         var buyers = d.BuyerIds.Select(id => people.GetValueOrDefault(id)).OfType<PartyDocument>().ToList();
+        var tds = Deals.PropertyTds.For(d, p, people);
         var paid = d.Payments.Sum(x => x.Amount);
         var balance = d.Price - paid;
         var v = new Dictionary<string, string>
@@ -61,11 +63,19 @@ public static partial class AgreementEngine
             v["earnest.figures"] = IndianWords.Figures(Math.Round(d.Price * pct / 100m, 0));
             v["earnest.words"] = IndianWords.Rupees(Math.Round(d.Price * pct / 100m, 0));
         }
-        if (d.Kind == PropertyPurpose.Sale && d.Price >= 50_00_000m)
+        // The property TDS (C5): due at ₹50 lakh or more over the whole deal, under the section of the agreement's date;
+        // a non-resident seller's share is s.195 (named, no figure).
+        if (tds.On(d.Price) is { } onPrice && onPrice > 0)
         {
-            v["tds.figures"] = IndianWords.Figures(Math.Round(d.Price / 100m, 0));
-            v["tds.words"] = IndianWords.Rupees(Math.Round(d.Price / 100m, 0));
+            v["tds.figures"] = IndianWords.Figures(onPrice);
+            v["tds.words"] = IndianWords.Rupees(onPrice);
+            v["tds.percent"] = tds.RatePercent!.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
         }
+        if (tds.Sale)
+            v["tds.section"] = Deals.PropertyTds.Section(d.ExecutionDate, today);
+        if (tds.NonResidentSeller)
+            v["tds.nri"] = string.Join(" and ", tds.Sellers.Where(x => x.NonResident).Select(x => x.Name));
+        AddLease(v, d, p, tenancy, paid);
         foreach (var (side, list) in new[] { ("seller", sellers), ("buyer", buyers) })
         {
             var (pronoun, possessive, has) = Pronouns(list);
@@ -82,11 +92,13 @@ public static partial class AgreementEngine
                 [".reference"] = x.Reference ?? string.Empty, [".refLabel"] = x.Mode is PaymentMode.Cheque or PaymentMode.DemandDraft ? "No." : "UTR No",
                 [".bank"] = x.Bank ?? string.Empty, [".date"] = IndianWords.ShortDate(x.Date),
                 [".payer"] = x.PayerPartyId is { } payer ? people.GetValueOrDefault(payer)?.Name ?? string.Empty : string.Empty,
+                [".tds"] = tds.On(x.Amount) is { } t && t > 0 ? IndianWords.Figures(t) : string.Empty,
             })],
             ["schedule"] = [.. d.Schedule.Select((x, i) => (IReadOnlyDictionary<string, string>)new Dictionary<string, string>
             {
                 [".n"] = (i + 1).ToString(), [".mode"] = x.Mode is { } m ? ModeLabel(m) : "Payment", [".figures"] = IndianWords.Figures(x.Amount),
                 [".words"] = IndianWords.Rupees(x.Amount), [".date"] = IndianWords.ShortDate(x.DueDate),
+                [".tds"] = tds.On(x.Amount) is { } t && t > 0 ? IndianWords.Figures(t) : string.Empty,
             })],
             ["witnesses"] = [.. d.Witnesses.Select((x, i) => (IReadOnlyDictionary<string, string>)new Dictionary<string, string>
             {
@@ -96,6 +108,48 @@ public static partial class AgreementEngine
             ["terms"] = [.. d.Terms.Select((x, i) => (IReadOnlyDictionary<string, string>)new Dictionary<string, string> { [".n"] = (i + 1).ToString(), [".text"] = x })],
         };
         return new AgreementValues(v, lists);
+    }
+
+    /// <summary>
+    /// The lease terms (C5) the lease templates use: from the deal's tenancy, else the property's rent terms and the deal
+    /// (the rent is the deal's price, as on the 11-month rent agreement). A value not known prints as a blank to fill.
+    /// </summary>
+    private static void AddLease(Dictionary<string, string> v, DealDocument d, PropertyDocument p, TenancyDocument? t, decimal paid)
+    {
+        var inv = System.Globalization.CultureInfo.InvariantCulture;
+        var rent = t?.Rent ?? d.Price;
+        v["rent.figures"] = IndianWords.Figures(rent);
+        v["rent.words"] = IndianWords.Rupees(rent);
+        v["lease.start"] = t is not null ? IndianWords.Date(t.StartDate) : d.ExecutionDate is { } exec ? IndianWords.Date(exec) : string.Empty;
+        if (t is not null)
+        {
+            v["lease.months"] = t.Months.ToString(inv);
+            v["lease.months.words"] = IndianWords.Words(t.Months).ToLowerInvariant();
+            v["lease.end"] = IndianWords.Date(t.EndDate);
+            v["rent.dueday"] = Ordinal(t.RentDueDay);
+        }
+        if ((t?.LockInMonths ?? p.LockInMonths) is { } lockIn)
+            v["lease.lockin"] = lockIn.ToString(inv);
+        if (t?.EscalationPercent is { } escalation)
+            v["lease.escalation"] = escalation.ToString("0.##", inv);
+        if (t?.RentFreeDays is { } free and > 0)
+            v["lease.rentfree"] = free.ToString(inv);
+        if ((t?.Deposit ?? p.Deposit ?? (paid > 0 ? paid : (decimal?)null)) is { } deposit)
+        {
+            v["deposit.figures"] = IndianWords.Figures(deposit);
+            v["deposit.words"] = IndianWords.Rupees(deposit);
+        }
+        if ((t?.Maintenance ?? p.Maintenance) is { } maintenance)
+            v["maintenance.figures"] = IndianWords.Figures(maintenance);
+        if ((t?.NoticeMonths ?? p.NoticeMonths) is { } notice)
+            v["lease.notice"] = notice.ToString(inv);
+        if (t?.PermittedUse is { } use)
+            v["lease.use"] = use;
+        v["lease.registration"] = t is null
+            ? "If the term of this lease is more than eleven months, it shall be stamped and registered with the Sub-Registrar under the Registration Act, 1908."
+            : t.Months > 11
+                ? "As the term of this lease is more than eleven months, it shall be stamped and registered with the Sub-Registrar under the Registration Act, 1908; the stamp duty and registration fee shall be borne as agreed between the parties."
+                : "The term of this lease is eleven months or less, and it is executed on stamp paper of the value the law requires.";
     }
 
     private static string PartiesText(IReadOnlyList<PartyDocument> people, ISecretProtector secrets, string companyId)

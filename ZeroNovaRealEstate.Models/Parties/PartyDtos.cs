@@ -10,6 +10,26 @@ public enum RelationKind
 }
 
 /// <summary>
+/// Where a person lives for tax and FEMA (C5, D38): a non-resident seller is taxed at source under s.195 (not the 1%
+/// property TDS); an NRI, OCI or foreign national buyer cannot buy agricultural land or a farmhouse (FEMA).
+/// </summary>
+public enum PartyResidency
+{
+    Resident,
+    Nri,
+    Oci,
+    ForeignNational,
+}
+
+/// <summary>For stamp duty estimates (C5): several states charge a woman buyer less.</summary>
+public enum PartyGender
+{
+    Male,
+    Female,
+    Other,
+}
+
+/// <summary>
 /// A person in the dealer's papers — an owner today, a buyer tomorrow (design 4.3). Aadhaar and PAN are sealed on save;
 /// empty on an update keeps the stored ones.
 /// </summary>
@@ -30,6 +50,12 @@ public sealed class PartyInput
 
     /// <summary>The zeronova-lead contact this person is (C2); empty keeps the stored one for the same lead.</summary>
     public string? ContactId { get; init; }
+
+    /// <summary>Resident, NRI, OCI or foreign national (C5); null keeps the stored value.</summary>
+    public PartyResidency? Residency { get; init; }
+
+    /// <summary>For the stamp duty estimate (C5); null keeps the stored value.</summary>
+    public PartyGender? Gender { get; init; }
 }
 
 /// <summary>A party as members see it: Aadhaar and PAN only as their last four characters; phones only with POWV.</summary>
@@ -46,4 +72,6 @@ public sealed record PartyDto(
     string? PanLast4,
     string? LeadId,
     IReadOnlyList<string> PropertyIds,
-    string? ContactId = null);
+    string? ContactId = null,
+    PartyResidency? Residency = null,
+    PartyGender? Gender = null);

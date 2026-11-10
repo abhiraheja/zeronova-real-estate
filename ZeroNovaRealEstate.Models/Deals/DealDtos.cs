@@ -28,6 +28,15 @@ public enum TransferKind
 
     /// <summary>A tenancy: the rent agreement, police verification, keys.</summary>
     Rent,
+
+    /// <summary>A GMADA letter of intent sold before allotment (C5): NDC, then GMADA's LOI transfer (fee about 2.5% of the allotment price).</summary>
+    GmadaLoi,
+
+    /// <summary>A Chandigarh leasehold property (C5): the Estate Office's transfer permission and the unearned increase before the sale deed.</summary>
+    ChandigarhLeasehold,
+
+    /// <summary>A Chandigarh freehold property (C5): the seller's conveyance deed from the Estate Office, then the sale deed.</summary>
+    ChandigarhFreehold,
 }
 
 public enum PaymentMode
@@ -44,18 +53,30 @@ public enum PaymentMode
 /// <summary>A payment made: how, how much, the UTR or cheque number, the bank, the date and who paid.</summary>
 public sealed record DealPaymentInput(PaymentMode Mode, decimal Amount, string? Reference, string? Bank, string? Date, string? PayerPartyId);
 
-public sealed record DealPaymentDto(PaymentMode Mode, decimal Amount, string AmountInWords, string? Reference, string? Bank, string? Date, string? PayerPartyId, string? PayerName);
+/// <summary>
+/// A payment made. <see cref="Tds"/> (C5): the property TDS the buyer deducts from it (every instalment, token
+/// included) under <see cref="TdsSection"/> — the section by the payment's date; null when none is due or it cannot be
+/// worked out (a non-resident seller's share, s.195).
+/// </summary>
+public sealed record DealPaymentDto(PaymentMode Mode, decimal Amount, string AmountInWords, string? Reference, string? Bank, string? Date, string? PayerPartyId, string? PayerName,
+    decimal? Tds = null, string? TdsSection = null);
 
 /// <summary>A payment still to come: how, how much, by when.</summary>
 public sealed record DealInstalmentInput(PaymentMode? Mode, decimal Amount, string? DueDate);
 
-public sealed record DealInstalmentDto(PaymentMode? Mode, decimal Amount, string AmountInWords, string? DueDate);
+/// <summary>An instalment to come, with the TDS to deduct from it (C5) as on <see cref="DealPaymentDto"/>.</summary>
+public sealed record DealInstalmentDto(PaymentMode? Mode, decimal Amount, string AmountInWords, string? DueDate, decimal? Tds = null, string? TdsSection = null);
 
 public sealed record WitnessInput(string Name, string? Address);
 
 public sealed record WitnessDto(string Name, string? Address);
 
-public sealed record ChecklistItemDto(string Key, string Label, bool Done, string? Date, string? Note);
+/// <summary>
+/// A transfer step. C5: <see cref="Step"/> is its place in an ordered procedure (GMADA: NDC → sale permission →
+/// registry → re-transfer → mutation; null = any time), <see cref="TypicalDays"/> how long it usually takes and
+/// <see cref="Hint"/> what to know (a fee, who issues it) — hints, not deadlines.
+/// </summary>
+public sealed record ChecklistItemDto(string Key, string Label, bool Done, string? Date, string? Note, int? Step = null, int? TypicalDays = null, string? Hint = null);
 
 public sealed record ChecklistUpdateInput(string Key, bool Done, string? Date, string? Note);
 
@@ -109,7 +130,44 @@ public sealed class DealInput
     public string? Notes { get; init; }
 }
 
-public sealed record DealPartyDto(string Id, string Name, string? Relation, string? RelativeName, string? AadhaarLast4, string? PanLast4, string? Address);
+public sealed record DealPartyDto(string Id, string Name, string? Relation, string? RelativeName, string? AadhaarLast4, string? PanLast4, string? Address,
+    Parties.PartyResidency? Residency = null, Parties.PartyGender? Gender = null);
+
+/// <summary>One seller's part of the property TDS (C5): their share, and the rate on it (1%, 20% without a PAN; none worked out for a non-resident).</summary>
+public sealed record DealTdsSellerDto(string PartyId, string Name, decimal SharePercent, bool NonResident, bool NoPan, decimal? RatePercent);
+
+/// <summary>
+/// The property TDS on a sale (C5, D38). <see cref="Applies"/>: the whole deal (every buyer and seller together) is ₹50
+/// lakh or more, or a seller is non-resident (s.195 has no threshold). <see cref="Section"/>: s.393(1) of the Income-tax
+/// Act 2025 for an agreement on or after 1 April 2026, s.194-IA before. <see cref="RatePercent"/>: over the whole price
+/// (each resident seller's share at 1%, or 20% without a PAN); null when only non-resident sellers. <see cref="OnFullPrice"/>:
+/// the TDS on the whole price. <see cref="Note"/>: what the buyer does.
+/// </summary>
+public sealed record DealTdsDto(
+    bool Applies,
+    decimal Threshold,
+    string Section,
+    decimal? RatePercent,
+    decimal? OnFullPrice,
+    bool NonResidentSeller,
+    string? Note,
+    IReadOnlyList<DealTdsSellerDto> Sellers);
+
+/// <summary>
+/// A stamp duty estimate (C5) — an estimate only, from the dealer's rates in the settings: the property's state (and
+/// urban or rural), the buyers' genders (all women, all men, or joint), on the deal price. Null rates = none set for the state.
+/// </summary>
+public sealed record StampDutyEstimateDto(
+    string Label,
+    string? State,
+    bool Rural,
+    string Category,
+    decimal? DutyPercent,
+    decimal? Duty,
+    decimal? RegistrationPercent,
+    decimal? Registration,
+    decimal? Total,
+    IReadOnlyList<string> Notes);
 
 public sealed record DealDto(
     string Id,
@@ -147,7 +205,17 @@ public sealed record DealDto(
     IReadOnlyList<string> Warnings,
     DateTimeOffset? CompletedAt,
     string? CancelReason,
-    DateTimeOffset? CreatedAt);
+    DateTimeOffset? CreatedAt)
+{
+    /// <summary>The property's state or UT (C5): its own, else the company's default.</summary>
+    public string? State { get; init; }
+
+    /// <summary>The property TDS in detail (C5); null on a rent deal.</summary>
+    public DealTdsDto? TdsDetail { get; init; }
+
+    /// <summary>The stamp duty estimate (C5); null on a rent deal.</summary>
+    public StampDutyEstimateDto? StampDuty { get; init; }
+}
 
 public sealed record DealStageInput(DealStage Stage, string? Reason);
 
@@ -174,6 +242,12 @@ public enum AgreementKind
     TokenReceipt,
     RentAgreement,
     Other,
+
+    /// <summary>A commercial lease (C5, D37): lock-in, yearly escalation, fit-out period, security deposit.</summary>
+    CommercialLease,
+
+    /// <summary>A residential lease over 11 months (C5, D37), to be registered and stamped.</summary>
+    RegisteredLease,
 }
 
 /// <summary>

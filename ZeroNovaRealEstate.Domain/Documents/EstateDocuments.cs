@@ -34,6 +34,12 @@ public sealed class PartyDocument : CompanyDocumentBase
 
     /// <summary>The zeronova-lead contact this person is (C2), when known — the customer's key.</summary>
     [BsonElement("contactId")] public string? ContactId { get; set; }
+
+    /// <summary>Resident, NRI, OCI or foreign national (C5): s.195 TDS for a non-resident seller, FEMA for a buyer of farm land.</summary>
+    [BsonElement("residency")] [BsonRepresentation(BsonType.String)] [BsonIgnoreIfNull] public PartyResidency? Residency { get; set; }
+
+    /// <summary>For the stamp duty estimate (C5).</summary>
+    [BsonElement("gender")] [BsonRepresentation(BsonType.String)] [BsonIgnoreIfNull] public PartyGender? Gender { get; set; }
 }
 
 /// <summary>What a buyer or tenant wants (design 4.4). Sizes in sq ft as well as entered; localities as keys for matching.</summary>
@@ -205,6 +211,15 @@ public sealed class EstateSettingsDocument : CompanyDocumentBase
     [BsonElement("matchTemplateName")] [BsonIgnoreIfNull] public string? MatchTemplateName { get; set; }
 
     [BsonElement("matchTemplateLanguage")] [BsonIgnoreIfNull] public string? MatchTemplateLanguage { get; set; }
+
+    /// <summary>The company's state or UT (C5): properties and projects without their own take it.</summary>
+    [BsonElement("defaultState")] [BsonIgnoreIfNull] public string? DefaultState { get; set; }
+
+    /// <summary>The dealer's own PAN (C5): a business payer deducts 20% TDS on brokerage without it (or a GSTIN).</summary>
+    [BsonElement("dealerPan")] [BsonIgnoreIfNull] public string? DealerPan { get; set; }
+
+    /// <summary>The dealer's stamp duty rates (C5); null = the defaults.</summary>
+    [BsonElement("stampDutyRates")] [BsonIgnoreIfNull] public List<StampDutyRateModel>? StampDutyRates { get; set; }
 }
 
 /// <summary>
@@ -333,6 +348,15 @@ public sealed class ChecklistItemModel
     [BsonElement("done")] public bool Done { get; set; }
     [BsonElement("date")] public string? Date { get; set; }
     [BsonElement("note")] public string? Note { get; set; }
+
+    /// <summary>Its place in an ordered procedure (C5); null = any time.</summary>
+    [BsonElement("step")] [BsonIgnoreIfNull] public int? Step { get; set; }
+
+    /// <summary>How many days it usually takes (C5) — a hint.</summary>
+    [BsonElement("typicalDays")] [BsonIgnoreIfNull] public int? TypicalDays { get; set; }
+
+    /// <summary>What to know about it (C5): a fee, who issues it.</summary>
+    [BsonElement("hint")] [BsonIgnoreIfNull] public string? Hint { get; set; }
 }
 
 public sealed class WitnessModel
@@ -404,6 +428,9 @@ public sealed class BrokerageDocument : CompanyDocumentBase
     [BsonElement("amount")] public decimal Amount { get; set; }
     [BsonElement("gstPercent")] public decimal GstPercent { get; set; }
     [BsonElement("tdsPercent")] public decimal TdsPercent { get; set; }
+
+    /// <summary>Who pays (C5); null on a brokerage saved before C5.</summary>
+    [BsonElement("payerKind")] [BsonRepresentation(BsonType.String)] [BsonIgnoreIfNull] public Models.Money.PayerKind? PayerKind { get; set; }
     [BsonElement("receipts")] public List<BrokerageReceiptModel> Receipts { get; set; } = [];
     [BsonElement("writtenOff")] public bool WrittenOff { get; set; }
     [BsonElement("notes")] public string? Notes { get; set; }
@@ -445,4 +472,35 @@ public sealed class TenancyDocument : CompanyDocumentBase
     /// <summary>The months (yyyy-MM) a rent-due bell went for, and whether the renewal bell went.</summary>
     [BsonElement("remindedMonths")] public List<string> RemindedMonths { get; set; } = [];
     [BsonElement("renewalReminded")] public bool RenewalReminded { get; set; }
+
+    // ── C5: the agreement date, the lease terms the lease templates need, and the paperwork after signing (D38).
+
+    [BsonElement("agreementDate")] [BsonIgnoreIfNull] public string? AgreementDate { get; set; }
+    [BsonElement("rentFreeDays")] [BsonIgnoreIfNull] public int? RentFreeDays { get; set; }
+    [BsonElement("permittedUse")] [BsonIgnoreIfNull] public string? PermittedUse { get; set; }
+
+    [BsonElement("policeVerified")] public bool PoliceVerified { get; set; }
+    [BsonElement("policeVerifiedOn")] [BsonIgnoreIfNull] public string? PoliceVerifiedOn { get; set; }
+    [BsonElement("policeStation")] [BsonIgnoreIfNull] public string? PoliceStation { get; set; }
+    [BsonElement("policeReference")] [BsonIgnoreIfNull] public string? PoliceReference { get; set; }
+    [BsonElement("policeDocument")] [BsonIgnoreIfNull] public PhotoModel? PoliceDocument { get; set; }
+    [BsonElement("policeReminded")] public bool PoliceReminded { get; set; }
+
+    /// <summary>Chandigarh only: when the Rent Authority was told (due 2 months after the agreement), and the UIN.</summary>
+    [BsonElement("rentAuthorityDoneOn")] [BsonIgnoreIfNull] public string? RentAuthorityDoneOn { get; set; }
+
+    [BsonElement("rentAuthorityUin")] [BsonIgnoreIfNull] public string? RentAuthorityUin { get; set; }
+    [BsonElement("rentAuthorityReminded")] public bool RentAuthorityReminded { get; set; }
+}
+
+/// <summary>One state's stamp duty rates (C5), in % — see <see cref="Models.Settings.StampDutyRateDto"/>.</summary>
+public sealed class StampDutyRateModel
+{
+    [BsonElement("state")] public required string State { get; set; }
+    [BsonElement("area")] [BsonRepresentation(BsonType.String)] [BsonIgnoreIfNull] public StampDutyArea? Area { get; set; }
+    [BsonElement("men")] [BsonIgnoreIfNull] public decimal? MenPercent { get; set; }
+    [BsonElement("women")] [BsonIgnoreIfNull] public decimal? WomenPercent { get; set; }
+    [BsonElement("joint")] [BsonIgnoreIfNull] public decimal? JointPercent { get; set; }
+    [BsonElement("registration")] [BsonIgnoreIfNull] public decimal? RegistrationPercent { get; set; }
+    [BsonElement("note")] [BsonIgnoreIfNull] public string? Note { get; set; }
 }

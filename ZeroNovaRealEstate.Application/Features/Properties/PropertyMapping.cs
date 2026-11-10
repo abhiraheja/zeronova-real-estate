@@ -51,6 +51,9 @@ public sealed class PropertyMapper(
         {
             Enquiries = Enquiries.EnquiryCounts.Of(enquiryCounts, p.Id),
             Videos = [.. (p.ProjectId is { } project ? projectVideos[project] : ownVideos[p.Id]).Select(Videos.EstateVideoBook.Dto)],
+            State = p.State,
+            Rural = p.Rural,
+            Warnings = Deals.GpaCheck.Warnings(p, owners),
         })];
     }
 
@@ -92,6 +95,11 @@ public static class PropertyWriter
         p.Purpose = input.Purpose;
         p.Type = input.Type;
         p.City = EstateText.Clean(input.City) ?? s.DefaultCity;
+        // C5: null keeps (an app that does not know them yet changes nothing); an empty state clears (the default applies).
+        if (input.State is not null)
+            p.State = EstateStates.Normalize(input.State);
+        if (input.Rural is { } rural)
+            p.Rural = rural;
         p.Locality = EstateText.Clean(input.Locality) ?? throw new ValidatorException("Enter the locality (sector, colony or area).");
         p.LocalityKey = EstateText.Key(p.Locality);
         p.Society = EstateText.Clean(input.Society);

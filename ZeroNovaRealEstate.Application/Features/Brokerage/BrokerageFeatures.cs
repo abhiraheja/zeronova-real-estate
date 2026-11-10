@@ -16,6 +16,7 @@ namespace ZeroNovaRealEstate.Application.Features.Brokerage;
 /// <summary>
 /// Adds (no id) or changes one side's brokerage on a deal (D13, M4). A rate of zero takes the dealer's default (1% of a
 /// sale, a month's rent); GST defaults to 18% when the dealer is GST-registered. Each side gets its own invoice number.
+/// C5: who pays (an individual or HUF by default) sets the TDS unless a TDS % is given.
 /// </summary>
 public sealed record SaveBrokerageCommand(string? BrokerageId, BrokerageInput Input) : IRequest<BrokerageDto>;
 
@@ -29,7 +30,7 @@ public sealed class SaveBrokerageValidator : AbstractValidator<SaveBrokerageComm
         RuleFor(x => x.Input.Rate).LessThanOrEqualTo(10).When(x => x.Input.Basis == BrokerageBasis.Percent).WithMessage("A brokerage rate is at most 10%.");
         RuleFor(x => x.Input.Rate).LessThanOrEqualTo(6).When(x => x.Input.Basis == BrokerageBasis.MonthsRent).WithMessage("At most six months' rent.");
         RuleFor(x => x.Input.GstPercent).InclusiveBetween(0, 28).When(x => x.Input.GstPercent is not null);
-        RuleFor(x => x.Input.TdsPercent).InclusiveBetween(0, 10).When(x => x.Input.TdsPercent is not null);
+        RuleFor(x => x.Input.TdsPercent).InclusiveBetween(0, 20).When(x => x.Input.TdsPercent is not null);
         RuleFor(x => x.Input.Notes).MaximumLength(2000);
     }
 }
@@ -70,7 +71,8 @@ public sealed class SaveBrokerageHandler(IBrokerageRepository brokerages, IDealR
         row.Rate = input.Rate > 0 ? input.Rate : input.Basis == BrokerageBasis.Percent ? s.SaleBrokeragePercent : s.RentBrokerageMonths;
         row.Amount = BrokerageMath.Amount(row.Basis, row.Rate, deal.Price);
         row.GstPercent = input.GstPercent ?? (s.GstRegistered ? 18m : 0m);
-        row.TdsPercent = input.TdsPercent ?? 0m;
+        row.PayerKind = input.PayerKind ?? row.PayerKind ?? (isNew ? PayerKind.IndividualOrHuf : null);
+        row.TdsPercent = input.TdsPercent ?? await RuleTdsAsync(row, s, ct);
         row.Notes = EstateText.Clean(input.Notes);
         if (BrokerageMath.Receivable(row) < row.Receipts.Sum(r => r.Amount))
             throw new ValidatorException("More is already received than this brokerage comes to.");
@@ -80,6 +82,27 @@ public sealed class SaveBrokerageHandler(IBrokerageRepository brokerages, IDealR
         else
             await brokerages.UpdateAsync(row, ct);
         return await mapper.OneAsync(row, ct);
+    }
+
+    /// <summary>
+    /// The brokerage TDS by rule (C5, D38): none from an individual or HUF; from a company or firm 2% (20% when the dealer
+    /// has no PAN on record) once its brokerage to the dealer in this financial year — this invoice included — is over ₹20,000.
+    /// </summary>
+    private async Task<decimal> RuleTdsAsync(BrokerageDocument row, Domain.Documents.EstateSettingsDocument s, CancellationToken ct)
+    {
+        if (row.PayerKind != PayerKind.CompanyOrFirm)
+            return 0m;
+        var year = Deals.BrokerageTds.FinancialYear(Deals.BrokerageTds.InvoiceDay(row));
+        var earlier = 0m;
+        if (row.PartyId is { } payer)
+        {
+            var id = row.Id;
+            earlier = (await brokerages.GetDocuments(b => b.PartyId == payer && b.Id != id && !b.WrittenOff).ToListAsync(ct))
+                .Where(b => Deals.BrokerageTds.FinancialYear(Deals.BrokerageTds.InvoiceDay(b)) == year).Sum(b => b.Amount);
+        }
+        if (earlier + row.Amount <= Deals.BrokerageTds.YearlyThreshold)
+            return 0m;
+        return Deals.BrokerageTds.DealerHasPan(s) ? 2m : 20m;
     }
 
     /// <summary>"BR/2026-27/0001" — the Indian financial year (April–March) and a running number.</summary>

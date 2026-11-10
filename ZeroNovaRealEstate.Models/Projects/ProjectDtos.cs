@@ -192,6 +192,10 @@ public sealed class ProjectInput
 
     // ── Location
     public string? City { get; init; }
+
+    /// <summary>The state or UT (C5); empty = the company's default state. Its units take it.</summary>
+    public string? State { get; init; }
+
     public string Locality { get; init; } = string.Empty;
     public string? Address { get; init; }
     public double? Latitude { get; init; }
@@ -507,6 +511,9 @@ public sealed record ProjectDto(
 
     /// <summary>Its videos (D36), in order, every status — its units show these.</summary>
     public IReadOnlyList<ZeroNovaRealEstate.Models.Videos.EstateVideoDto> Videos { get; init; } = [];
+
+    /// <summary>The state or UT (C5).</summary>
+    public string? State { get; init; }
 }
 
 /// <summary>A project in a list (and on the dashboard): what it is and its units by status.</summary>

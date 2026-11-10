@@ -38,6 +38,46 @@ public sealed class SaveTenancyValidator : AbstractValidator<SaveTenancyCommand>
         RuleFor(x => x.Input.LockInMonths).InclusiveBetween(0, 120).When(x => x.Input.LockInMonths is not null);
         RuleFor(x => x.Input.NoticeMonths).InclusiveBetween(0, 12).When(x => x.Input.NoticeMonths is not null);
         RuleFor(x => x.Input.Notes).MaximumLength(4000);
+        RuleFor(x => x.Input.RentFreeDays).InclusiveBetween(0, 365).When(x => x.Input.RentFreeDays is not null);
+        RuleFor(x => x.Input.PermittedUse).MaximumLength(300);
+    }
+}
+
+/// <summary>
+/// A tenancy's paperwork after signing (C5, D38), saved as a whole: the tenant's police verification (date, police
+/// station, reference, the form), and in Chandigarh the Rent Authority intimation (done on, UIN). Allowed on an ended
+/// tenancy too — paperwork is often late.
+/// </summary>
+public sealed record UpdateTenancyComplianceCommand(string TenancyId, TenancyComplianceInput Input) : IRequest<TenancyDto>;
+
+public sealed class UpdateTenancyComplianceValidator : AbstractValidator<UpdateTenancyComplianceCommand>
+{
+    public UpdateTenancyComplianceValidator()
+    {
+        RuleFor(x => x.Input.PoliceStation).MaximumLength(120);
+        RuleFor(x => x.Input.PoliceReference).MaximumLength(120);
+        RuleFor(x => x.Input.RentAuthorityUin).MaximumLength(60);
+    }
+}
+
+public sealed class UpdateTenancyComplianceHandler(ITenancyRepository tenancies, TenancyMapper mapper, EstateScope scope)
+    : IRequestHandler<UpdateTenancyComplianceCommand, TenancyDto>
+{
+    public async Task<TenancyDto> Handle(UpdateTenancyComplianceCommand request, CancellationToken ct)
+    {
+        var row = await TenancyLookup.RequireAsync(tenancies, scope, request.TenancyId, ct);
+        var input = request.Input;
+        row.PoliceVerified = input.PoliceVerified;
+        row.PoliceVerifiedOn = EstateText.Date(input.PoliceVerifiedOn, "Police verification date");
+        row.PoliceStation = EstateText.Clean(input.PoliceStation);
+        row.PoliceReference = EstateText.Clean(input.PoliceReference);
+        row.PoliceDocument = input.PoliceDocument is { } doc && EstateText.Clean(doc.Url) is { } url
+            ? new PhotoModel { Key = EstateText.Clean(doc.Key) ?? url, Url = url }
+            : null;
+        row.RentAuthorityDoneOn = EstateText.Date(input.RentAuthorityDoneOn, "Rent Authority intimation date");
+        row.RentAuthorityUin = EstateText.Clean(input.RentAuthorityUin);
+        await tenancies.UpdateAsync(row, ct);
+        return await mapper.OneAsync(row, ct);
     }
 }
 
@@ -82,6 +122,7 @@ public sealed class SaveTenancyHandler(ITenancyRepository tenancies, IPropertyRe
             throw new ValidatorException("Only a manager can give a tenancy to another agent.");
 
         row ??= new TenancyDocument { Id = tenancies.GetNewId, PropertyId = property.Id, StartDate = start, EndDate = start, AgentId = agent };
+        var basisBefore = row.AgreementDate ?? row.StartDate;   // what the Rent Authority's due date counts from (C5)
         row.PropertyId = property.Id;
         row.DealId = deal?.Id ?? row.DealId;
         row.LandlordIds = landlords;
@@ -100,6 +141,14 @@ public sealed class SaveTenancyHandler(ITenancyRepository tenancies, IPropertyRe
         row.NoticeMonths = input.NoticeMonths;
         row.AgentId = agent;
         row.Notes = input.Notes?.Trim() is { Length: > 0 } notes ? notes : null;
+        // C5: null keeps; the agreement date defaults to the rent deal's (else the start, when it is read).
+        row.AgreementDate = input.AgreementDate is not null ? EstateText.Date(input.AgreementDate, "Agreement date") : row.AgreementDate ?? deal?.ExecutionDate;
+        if ((row.AgreementDate ?? row.StartDate) != basisBefore)
+            row.RentAuthorityReminded = false;
+        if (input.RentFreeDays is { } free)
+            row.RentFreeDays = free > 0 ? free : null;
+        if (input.PermittedUse is not null)
+            row.PermittedUse = EstateText.Clean(input.PermittedUse);
 
         if (isNew)
         {
@@ -316,6 +365,36 @@ public static class Tenancies
 
     public static int DaysToEnd(TenancyDocument t, string today) =>
         DateOnly.ParseExact(t.EndDate, "yyyy-MM-dd", CultureInfo.InvariantCulture).DayNumber - DateOnly.ParseExact(today, "yyyy-MM-dd", CultureInfo.InvariantCulture).DayNumber;
+
+    /// <summary>Days before Chandigarh's Rent Authority intimation falls due that its bell rings (C5).</summary>
+    public const int RentAuthorityBellDays = 15;
+
+    /// <summary>Chandigarh's Rent Authority intimation is due 2 months after the agreement (UT of Chandigarh Tenancy Rules 2026).</summary>
+    public static string RentAuthorityDue(TenancyDocument t) =>
+        DateOnly.ParseExact(t.AgreementDate ?? t.StartDate, "yyyy-MM-dd", CultureInfo.InvariantCulture).AddMonths(2).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
+
+    /// <summary>Police verification (everywhere) and, in Chandigarh, the Rent Authority intimation (C5, D38).</summary>
+    public static TenancyComplianceDto Compliance(TenancyDocument t, string? state, string today)
+    {
+        var active = t.Status == TenancyStatus.Active;
+        var policeDue = active && !t.PoliceVerified && string.CompareOrdinal(today, t.StartDate) >= 0;
+        var chandigarh = EstateStates.Is(state, EstateStates.Chandigarh);
+        var due = chandigarh ? RentAuthorityDue(t) : null;
+        var overdue = due is not null && t.RentAuthorityDoneOn is null && string.CompareOrdinal(today, due) > 0;
+        var w = new List<string>();
+        if (policeDue)
+            w.Add("The tenant's police verification is not recorded — it is required (a DM or Police Commissioner's order under s.163 BNSS; skipping it is an "
+                + "offence under s.223 BNS). Get it done at the police station or Sampark Centre and note the reference.");
+        if (active && due is not null && t.RentAuthorityDoneOn is null)
+            w.Add(overdue
+                ? $"Chandigarh: the Rent Authority intimation was due by {IndianWords.Date(due)} (2 months after the agreement) — it is overdue. Do it and note the UIN."
+                : $"Chandigarh: Rent Authority intimation due within 2 months of the agreement — by {IndianWords.Date(due)}. Note the UIN from its e-receipt.");
+        if (due is not null && t.RentAuthorityDoneOn is not null && t.RentAuthorityUin is null)
+            w.Add("Note the UIN from the Rent Authority's e-receipt.");
+        return new TenancyComplianceDto(t.PoliceVerified, t.PoliceVerifiedOn, t.PoliceStation, t.PoliceReference,
+            t.PoliceDocument is { } doc ? new PhotoDto(doc.Key, doc.Url) : null, policeDue, chandigarh, due, t.RentAuthorityDoneOn, t.RentAuthorityUin,
+            overdue, w);
+    }
 }
 
 /// <summary>Tenancies as members see them, with the reminder and renewal messages ready for WhatsApp.</summary>
@@ -331,7 +410,8 @@ public sealed class TenancyMapper(IPropertyRepository properties, IPartyReposito
         var props = (await properties.GetDocuments(p => propertyIds.Contains(p.Id), true).ToListAsync(ct)).ToDictionary(p => p.Id);
         var partyIds = rows.SelectMany(t => t.LandlordIds.Concat(t.TenantIds)).Distinct().ToList();
         var people = (await parties.GetDocuments(p => partyIds.Contains(p.Id), true).ToListAsync(ct)).ToDictionary(p => p.Id);
-        var dealer = (await EstateSettings.LoadAsync(settings, ct)).DealerName;
+        var s = await EstateSettings.LoadAsync(settings, ct);
+        var dealer = s.DealerName;
         var today = EstateText.Today(clock);
 
         return [.. rows.Select(t =>
@@ -349,17 +429,24 @@ public sealed class TenancyMapper(IPropertyRepository properties, IPartyReposito
                 [.. t.LandlordIds.Select(id => people.GetValueOrDefault(id)?.Name ?? "—")], [.. t.TenantIds.Select(id => people.GetValueOrDefault(id)?.Name ?? "—")],
                 tenant?.WhatsApp ?? tenant?.Phone, t.Rent, t.Deposit, t.Maintenance, t.StartDate, t.EndDate, t.Months, t.RentDueDay, t.EscalationPercent,
                 t.LockInMonths, t.NoticeMonths, t.Status, [.. t.Payments.Select(x => new RentPaymentDto(x.Month, x.Amount, x.Mode, x.Reference, x.Date))],
-                Tenancies.RentDue(t, today), Tenancies.DaysToEnd(t, today), t.AgentId, t.Notes, reminder, renewal);
+                Tenancies.RentDue(t, today), Tenancies.DaysToEnd(t, today), t.AgentId, t.Notes, reminder, renewal)
+            {
+                AgreementDate = t.AgreementDate,
+                RentFreeDays = t.RentFreeDays,
+                PermittedUse = t.PermittedUse,
+                Compliance = Tenancies.Compliance(t, p is null ? EstateStates.Normalize(s.DefaultState) : EstateStates.Of(p, s), today),
+            };
         })];
     }
 }
 
 /// <summary>
-/// The rent bells (RentReminderJob runs it): rent past its due day this month, and a tenancy ending
-/// within 30 days — each rung once to the agent.
+/// The rent bells (RentReminderJob runs it): rent past its due day this month, a tenancy ending within 30 days, and
+/// (C5) a started tenancy with no police verification, and in Chandigarh the Rent Authority intimation from 15 days
+/// before it is due — each rung once to the agent.
 /// </summary>
-public sealed class RentReminders(ITenancyRepository tenancies, IPropertyRepository properties, IAgentNotificationProducer bell, TimeProvider clock,
-    ILogger<RentReminders> logger)
+public sealed class RentReminders(ITenancyRepository tenancies, IPropertyRepository properties, IEstateSettingsRepository settings,
+    IAgentNotificationProducer bell, TimeProvider clock, ILogger<RentReminders> logger)
 {
     private const int Page = 200;
 
@@ -368,6 +455,7 @@ public sealed class RentReminders(ITenancyRepository tenancies, IPropertyReposit
         var now = clock.GetUtcNow();
         var today = EstateText.Today(clock);
         var rung = 0;
+        var companies = new Dictionary<string, EstateSettingsDocument>();
         for (var skip = 0; ; skip += Page)
         {
             var batch = await tenancies.ActiveAnyTenantAsync(skip, Page, ct);
@@ -375,9 +463,23 @@ public sealed class RentReminders(ITenancyRepository tenancies, IPropertyReposit
             {
                 var rentDue = Tenancies.RentDue(t, today) && !t.RemindedMonths.Contains(today[..7]);
                 var ending = !t.RenewalReminded && Tenancies.DaysToEnd(t, today) is >= 0 and <= 30;
-                if (!rentDue && !ending)
+                var police = !t.PoliceVerified && !t.PoliceReminded && string.CompareOrdinal(today, t.StartDate) >= 0;
+                // Chandigarh's intimation: only the date is known without the property; the state needs it.
+                var authorityWindow = t.RentAuthorityDoneOn is null && !t.RentAuthorityReminded
+                    && string.CompareOrdinal(today, DateOnly.ParseExact(Tenancies.RentAuthorityDue(t), "yyyy-MM-dd", CultureInfo.InvariantCulture)
+                        .AddDays(-Tenancies.RentAuthorityBellDays).ToString("yyyy-MM-dd", CultureInfo.InvariantCulture)) >= 0;
+                if (!rentDue && !ending && !police && !authorityWindow)
                     continue;
                 var property = await properties.GetDocument(t.PropertyId, true, t.CompanyId).FirstOrDefaultAsync(ct);
+                var authority = false;
+                if (authorityWindow)
+                {
+                    if (!companies.TryGetValue(t.CompanyId, out var s))
+                        companies[t.CompanyId] = s = await EstateSettings.LoadAsync(settings, ct, t.CompanyId);
+                    authority = EstateStates.Is(property is null ? s.DefaultState : EstateStates.Of(property, s), EstateStates.Chandigarh);
+                }
+                if (!rentDue && !ending && !police && !authority)
+                    continue;
                 if (rentDue)
                 {
                     t.RemindedMonths.Add(today[..7]);
@@ -389,6 +491,18 @@ public sealed class RentReminders(ITenancyRepository tenancies, IPropertyReposit
                     t.RenewalReminded = true;
                     rung += await RingAsync(t, "ESTATE_TENANCY_ENDING", $"Tenancy ends {IndianWords.Date(t.EndDate)}",
                         $"{property?.Title ?? "A tenancy"} — renew it or find the next tenant.", now, ct);
+                }
+                if (police)
+                {
+                    t.PoliceReminded = true;
+                    rung += await RingAsync(t, "ESTATE_POLICE_VERIFICATION", $"Police verification: {property?.Title ?? "a tenancy"}",
+                        "The tenant's police verification is not recorded. Get it done and note the reference.", now, ct);
+                }
+                if (authority)
+                {
+                    t.RentAuthorityReminded = true;
+                    rung += await RingAsync(t, "ESTATE_RENT_AUTHORITY_DUE", $"Rent Authority intimation due {IndianWords.Date(Tenancies.RentAuthorityDue(t))}",
+                        $"{property?.Title ?? "A tenancy"} in Chandigarh — tell the Rent Authority within 2 months of the agreement and note the UIN.", now, ct);
                 }
                 await tenancies.UpdateAsync(t, ct, t.CompanyId);
             }

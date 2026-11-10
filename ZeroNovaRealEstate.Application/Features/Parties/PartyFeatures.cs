@@ -55,6 +55,9 @@ public sealed class SavePartyHandler(
         party.WhatsApp = EstateText.Phone(input.WhatsApp);
         party.Email = EstateText.Clean(input.Email);
         party.Address = EstateText.Clean(input.Address);
+        // C5: null keeps (an app that does not know them yet changes nothing).
+        party.Residency = input.Residency ?? party.Residency;
+        party.Gender = input.Gender ?? party.Gender;
         var (oldContact, oldLead) = (party.ContactId, party.LeadId);
         party.LeadId = EstateText.Clean(input.LeadId);
         // The customer's key (C2): the contact given, else the one kept for this lead, else the lead's as our rows know it.
@@ -135,6 +138,6 @@ public static class PartyMapping
         var owned = await properties.GetDocuments(x => x.Owners.Any(o => o.PartyId == p.Id)).Select(x => x.Id).ToListAsync(ct);
         var sees = scope.SeesOwners;
         return new PartyDto(p.Id, p.Name, p.Relation, p.RelativeName, sees ? p.Phone : null, sees ? p.WhatsApp : null, sees ? p.Email : null,
-            sees ? p.Address : null, p.AadhaarLast4, p.PanLast4, p.LeadId, owned, p.ContactId);
+            sees ? p.Address : null, p.AadhaarLast4, p.PanLast4, p.LeadId, owned, p.ContactId, p.Residency, p.Gender);
     }
 }

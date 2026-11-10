@@ -74,6 +74,13 @@ public sealed class PropertyDocument : CompanyDocumentBase
     [BsonElement("confirmedVia")] [BsonRepresentation(BsonType.String)] public ConfirmedVia ConfirmedVia { get; set; }
 
     [BsonElement("city")] public string? City { get; set; }
+
+    /// <summary>The state or UT (C5); a project unit takes its project's.</summary>
+    [BsonElement("state")] [BsonIgnoreIfNull] public string? State { get; set; }
+
+    /// <summary>Outside municipal limits (C5): rural stamp duty where a state has it.</summary>
+    [BsonElement("rural")] public bool Rural { get; set; }
+
     [BsonElement("locality")] public required string Locality { get; set; }
 
     /// <summary>The locality lower-cased and trimmed — what search and matching compare.</summary>

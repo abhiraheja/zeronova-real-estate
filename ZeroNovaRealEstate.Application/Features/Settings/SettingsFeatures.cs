@@ -53,6 +53,19 @@ public sealed class SaveEstateSettingsValidator : AbstractValidator<SaveEstateSe
             .WithMessage("A template language is a code like en, hi or en_US.");
         RuleFor(x => x.Input.Gstin).Matches("^[0-9]{2}[A-Za-z0-9]{13}$").When(x => !string.IsNullOrWhiteSpace(x.Input.Gstin))
             .WithMessage("A GSTIN has 15 characters, starting with the state code.");
+        RuleFor(x => x.Input.DefaultState).MaximumLength(60);
+        RuleFor(x => x.Input.DealerPan).Matches("^[A-Za-z]{5}[0-9]{4}[A-Za-z]$").When(x => !string.IsNullOrWhiteSpace(x.Input.DealerPan))
+            .WithMessage("A PAN looks like ABCDE1234F.");
+        RuleFor(x => x.Input.StampDutyRates).Must(r => r is null || r.Count <= 60).WithMessage("At most 60 stamp duty rows.");
+        RuleForEach(x => x.Input.StampDutyRates).ChildRules(r =>
+        {
+            r.RuleFor(x => x.State).NotEmpty().MaximumLength(60);
+            r.RuleFor(x => x.MenPercent).InclusiveBetween(0, 20).When(x => x.MenPercent is not null);
+            r.RuleFor(x => x.WomenPercent).InclusiveBetween(0, 20).When(x => x.WomenPercent is not null);
+            r.RuleFor(x => x.JointPercent).InclusiveBetween(0, 20).When(x => x.JointPercent is not null);
+            r.RuleFor(x => x.RegistrationPercent).InclusiveBetween(0, 10).When(x => x.RegistrationPercent is not null);
+            r.RuleFor(x => x.Note).MaximumLength(300);
+        }).When(x => x.Input.StampDutyRates is not null);
     }
 }
 
@@ -89,6 +102,17 @@ public sealed class SaveEstateSettingsHandler(IEstateSettingsRepository settings
             row.MatchTemplateName = EstateText.Clean(input.MatchTemplateName);
         if (input.MatchTemplateLanguage is not null)
             row.MatchTemplateLanguage = EstateText.Clean(input.MatchTemplateLanguage);
+        // C5: null keeps; empty text clears; an empty rate list goes back to the shipped defaults.
+        if (input.DefaultState is not null)
+            row.DefaultState = EstateStates.Normalize(input.DefaultState);
+        if (input.DealerPan is not null)
+            row.DealerPan = EstateText.Clean(input.DealerPan)?.ToUpperInvariant();
+        if (input.StampDutyRates is not null)
+            row.StampDutyRates = input.StampDutyRates.Count == 0 ? null : [.. input.StampDutyRates.Select(r => new StampDutyRateModel
+            {
+                State = EstateStates.Normalize(r.State)!, Area = r.Area, MenPercent = r.MenPercent, WomenPercent = r.WomenPercent, JointPercent = r.JointPercent,
+                RegistrationPercent = r.RegistrationPercent, Note = EstateText.Clean(r.Note),
+            })];
         if (isNew)
             await settings.AddAsync(row, ct);
         else
@@ -101,7 +125,13 @@ internal static class SettingsMapping
 {
     public static EstateSettingsDto ToDto(EstateSettingsDocument s) => new(s.MarlaSqFt, s.KanalSqFt, s.BighaSqFt, s.BiswaSqFt, s.KathaSqFt,
         s.BudgetTolerancePercent, s.SaleFreshDays, s.RentFreshDays, s.MatchThreshold, s.DefaultCity, s.ReraNumber, s.DealerName, s.DealerPhone,
-        s.GstRegistered, s.Gstin, s.DealerAddress, s.SaleBrokeragePercent, s.RentBrokerageMonths, s.WatchDays, s.MatchTemplateName, s.MatchTemplateLanguage);
+        s.GstRegistered, s.Gstin, s.DealerAddress, s.SaleBrokeragePercent, s.RentBrokerageMonths, s.WatchDays, s.MatchTemplateName, s.MatchTemplateLanguage)
+    {
+        DefaultState = s.DefaultState,
+        DealerPan = s.DealerPan,
+        StampDutyRates = [.. Deals.StampDuty.Rates(s).Select(r => new StampDutyRateDto(r.State, r.Area, r.MenPercent, r.WomenPercent, r.JointPercent,
+            r.RegistrationPercent, r.Note))],
+    };
 
     public static CustomFieldDto ToDto(CustomFieldDocument f) => new(f.Id, f.Key, f.Label, f.Kind, f.Options, f.PropertyTypes, f.Filterable);
 }

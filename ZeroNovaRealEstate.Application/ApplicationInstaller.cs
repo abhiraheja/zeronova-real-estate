@@ -37,6 +37,8 @@ public static class ApplicationInstaller
         services.AddScoped<Features.Visits.VisitMapper>();
         // Deals and agreements (M3).
         services.AddScoped<Features.Deals.DealMapper>();
+        // C5: what the deal checks need beyond the deal (settings, the brokerages a caller may see, today).
+        services.AddScoped<Features.Deals.DealCheckSource>();
         services.AddScoped<Features.Agreements.AgreementSource>();
         // Brokerage and rentals (M4).
         services.AddScoped<Features.Brokerage.BrokerageMapper>();

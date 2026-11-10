@@ -61,6 +61,12 @@ public sealed class MoneyMutation(IMediator mediator) : MutationBase
     [GraphQLName("ZeroNova_saveEstateTenancy")]
     public Task<TenancyDto> SaveTenancy(string? tenancyId, TenancyInput input, CancellationToken ct) => mediator.Send(new SaveTenancyCommand(tenancyId, input), ct);
 
+    /// <summary>A tenancy's paperwork (C5): police verification, and in Chandigarh the Rent Authority intimation and its UIN.</summary>
+    [RequirePermission(P.RentalManage)]
+    [GraphQLName("ZeroNova_updateEstateTenancyCompliance")]
+    public Task<TenancyDto> UpdateTenancyCompliance(string tenancyId, TenancyComplianceInput input, CancellationToken ct) =>
+        mediator.Send(new UpdateTenancyComplianceCommand(tenancyId, input), ct);
+
     [RequirePermission(P.RentalManage)]
     [GraphQLName("ZeroNova_recordEstateRentPayment")]
     public Task<TenancyDto> RecordRentPayment(string tenancyId, RentPaymentInput input, CancellationToken ct) =>

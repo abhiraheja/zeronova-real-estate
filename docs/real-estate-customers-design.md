@@ -1,6 +1,6 @@
 # Real Estate — enquiries, customers, unmet demand, video and agreement fixes (section 8)
 
-**Status:** design, 2026-11-10. Continues `real-estate-design.md` (D1–D26) with D27–D40. C1, C2, C3 and C4 are built (backend), each with its notes below. **C1 built 2026-11-10
+**Status:** design, 2026-11-10. Continues `real-estate-design.md` (D1–D26) with D27–D40. C1, C2, C3, C4 and C5 are built (backend), each with its notes below. **C1 built 2026-11-10
 (backend; the app's Enquiries screen is not):** `re_enquiries` from zeronova-lead's `lead-enquiry-received`
 (subscription `zeronova-real-estate.lead-enquiry-sub` on `lead-lifecycle`), the share page's `ZeroNova_enquireEstateShare`,
 staff `ZeroNova_addEstateEnquiry` (+ `ZeroNova_estateEnquiryByRef` to poll), `ZeroNova_updateEstateEnquiry`,
@@ -238,6 +238,129 @@ posterUrl, durationSeconds}]`, ready videos only. How it works:
 5. **Subscriptions** on `media-events`: `zeronova-real-estate.video-ready-sub` (already added in zeronova-k8s 5337773) and
    `zeronova-real-estate.video-failed-sub` (added to `infra/subscriptions.tsv`, not applied). Dev creates them itself
    (`Messaging:EnsureResources`).
+
+**C5 built 2026-11-10 (backend; the app's screens are not):** the compliance fixes (D38) and the two lease templates
+(D37). Every rule is a **warning**, never a block. Nothing stored is migrated: deals keep the checklist they were made with,
+brokerages saved before C5 keep their TDS % (their payer kind is null), and new fields are optional.
+
+GraphQL:
+
+- **Parties:** `PartyInput` / `PartyDto` `residency: PartyResidency` (RESIDENT, NRI, OCI, FOREIGN_NATIONAL) and
+  `gender: PartyGender` (MALE, FEMALE, OTHER); null keeps the stored value. `DealPartyDto` carries both.
+- **State:** `state` on `PropertyInput` / `PropertyDto` and `ProjectInput` / `ProjectDto` (null keeps, empty clears; a unit
+  takes its project's), `rural: Boolean` on properties (stamp duty), `defaultState` in settings. Known names are spelled one
+  way ("haryana", "UT Chandigarh" → "Haryana", "Chandigarh"); others are kept as typed. `ZeroNova_estateStates` lists
+  India's 28 states and 8 UTs for the pickers.
+- **Deals:** `DealDto.state`, `DealDto.tdsDetail: DealTdsDto {applies, threshold, section, ratePercent, onFullPrice,
+  nonResidentSeller, note, sellers [{partyId, name, sharePercent, nonResident, noPan, ratePercent}]}`, `DealDto.stampDuty:
+  StampDutyEstimateDto {label, state, rural, category, dutyPercent, duty, registrationPercent, registration, total, notes}`;
+  `tds` and `tdsSection` on every `DealPaymentDto` and `DealInstalmentDto`; `step`, `typicalDays`, `hint` on
+  `ChecklistItemDto`. `TransferKind` adds GMADA_LOI, CHANDIGARH_LEASEHOLD, CHANDIGARH_FREEHOLD.
+- **Brokerage:** `BrokerageInput.payerKind: PayerKind` (INDIVIDUAL_OR_HUF, COMPANY_OR_FIRM; null keeps, a new one is
+  INDIVIDUAL_OR_HUF); `tdsPercent` null now means "by the rule" (up to 20 allowed). `BrokerageDto` adds `payerKind`,
+  `tdsSection`, `tdsNote`, `warnings`. Settings add `dealerPan`.
+- **Rentals:** `TenancyInput` adds `agreementDate`, `rentFreeDays`, `permittedUse` (null keeps). `TenancyDto` adds them and
+  `compliance: TenancyComplianceDto {policeVerified, policeVerifiedOn, policeStation, policeReference, policeDocument,
+  policeVerificationDue, rentAuthorityRequired, rentAuthorityDueDate, rentAuthorityDoneOn, rentAuthorityUin,
+  rentAuthorityOverdue, warnings}`. New `ZeroNova_updateEstateTenancyCompliance(tenancyId, input: TenancyComplianceInput)`
+  (PRNM) saves the paperwork as a whole, on an ended tenancy too.
+- **Stamp duty rates:** `EstateSettingsDto.stampDutyRates: [StampDutyRateDto {state, area (URBAN / RURAL / null = whole
+  state), menPercent, womenPercent, jointPercent, registrationPercent, note}]`; `EstateSettingsInput.stampDutyRates`
+  replaces the list (null keeps, an empty list goes back to the defaults).
+- **Agreements:** `AgreementKind` adds COMMERCIAL_LEASE and REGISTERED_LEASE; the ready templates `builtin:commercial-lease`
+  and `builtin:registered-lease`. New placeholders, usable in the dealer's own Word files too: `tds.percent`, `tds.section`,
+  `tds.nri`, `.tds` inside `payments` and `schedule`, `rent.figures` / `rent.words`, `rent.dueday`, `lease.months` /
+  `lease.months.words`, `lease.start`, `lease.end`, `lease.lockin`, `lease.escalation`, `lease.rentfree`, `lease.notice`,
+  `lease.use`, `lease.registration`, `deposit.figures` / `deposit.words`, `maintenance.figures`.
+
+The rules:
+
+1. **Property TDS** (`PropertyTds`). Due when the deal price — the whole deal, every buyer and seller together — is
+   **₹50 lakh or more** (the code always used `>=`; only the design text said "above"). It is deducted from **every payment
+   and instalment, the token included**, shown per line. The section is **s.393(1) of the Income-tax Act 2025** for a
+   payment dated on or after 2026-04-01 and **s.194-IA** before. A line with no date counts as today; the deal-level label
+   and the agreement's clause use the agreement's date. The rate is per seller's share (their owner share when every seller
+   is a current owner, else equal): **1%, or 20% when the seller has no PAN on record**. A **non-resident seller** (NRI, OCI
+   or foreign national — all treated as non-resident for tax) gets no rate. Instead the warning reads "TDS under s.195 —
+   buyer needs a TAN and files Form 27Q; rate depends on capital gains — consult a CA", whatever the price (s.195 has no
+   threshold). The ready Agreements to Sell print the section, the rate and an s.195 clause naming the non-resident sellers.
+2. **Brokerage TDS** (`BrokerageTds`): **s.393(1) (Table Sl. 1(ii))** from 2026-04-01, **s.194H** before, by the invoice
+   date. An individual or HUF payer: **no TDS by default**, with a note. A company, firm or other payer: **2%**, or **20%
+   when the dealer has no PAN on record** (settings `dealerPan`, or a GSTIN, which contains it). It applies only when that
+   payer's brokerage to the dealer in the financial year, this invoice included, is **over ₹20,000**. A TDS % given by hand
+   wins. GST 18% is unchanged. The threshold is checked when an invoice is saved; earlier invoices of the year are not
+   re-taxed when a later one crosses it.
+3. **Haryana cap** (`HaryanaBrokerageCap`): on a sale whose property is in Haryana, warn when the sides together exceed
+   **1%** of the deal price, or one side exceeds **0.5%**. The warning shows on the brokerage (the deal's total and that side),
+   and in the deal's and agreement's checks only for callers with PBRV or PBRM. Punjab and Chandigarh have no cap.
+4. **FEMA** (`FemaCheck`): a sale of AGRICULTURAL_LAND or FARMHOUSE with an NRI, OCI or foreign national buyer. There is no
+   "agricultural tenure" on plots, so plots are not checked.
+5. **GPA** (`GpaCheck`): an owner holding POWER_OF_ATTORNEY (or a property whose tenure is POWER_OF_ATTORNEY) warns "GPA
+   gives no title (Supreme Court, Suraj Lamp 2011) — check the chain" on `PropertyDto.warnings`, the deal and the agreement.
+   This replaces the old "get a lawyer to check it" line, and covers any owner, not only the sellers.
+6. **Transfer checklists:**
+   - **AUTHORITY_PLOT** (GMADA / authority, Punjab) is now ordered: NDC (about 15 working days) → sale permission (10) →
+     registry at the Sub-Registrar (deed / vasika number) → re-transfer (5) → mutation (about 30). TDS and possession can be
+     done at any step. A step ticked before an earlier one warns.
+   - **GMADA_LOI:** NDC → LOI transfer (21 working days; the hint gives the fee, about 2.5% of the allotment price) → papers in
+     the buyer's name.
+   - **CHANDIGARH_LEASEHOLD:** Estate Office permission → unearned increase (hint: about one-third of the rise since
+     allotment) → registry → mutation.
+   - **CHANDIGARH_FREEHOLD:** the seller's conveyance deed → registry → mutation.
+   - The TDS step now reads "26QB and 16B; 27Q and 16A for a non-resident seller". On completion, the buyers of a GMADA_LOI or
+     CHANDIGARH_LEASEHOLD deal hold an authority allotment.
+7. **Rentals:**
+   - **Police verification** is due once a tenancy has started. It shows as a warning and rings the agent once
+     (`ESTATE_POLICE_VERIFICATION`, from the rent reminder job).
+   - **Chandigarh:** the **Rent Authority intimation** is due 2 months after the agreement (`agreementDate`, else the rent
+     deal's date, else the start). It has a due date, a done date and the UIN, and is overdue after the due date. The bell
+     `ESTATE_RENT_AUTHORITY_DUE` rings once, from 15 days before the due date.
+8. **Stamp duty estimate** (`StampDuty`), labelled "Estimate only". It takes the rate row for the property's state, the
+   rural row when the property is marked rural, and the buyers' genders: every buyer a woman → the women's rate; women and
+   men → joint; otherwise men. A buyer with no gender (or OTHER) counts as a man, with a note. The estimate is on the deal
+   price; the collector rate is not modelled, and the label says duty is on the higher of the two. The defaults are:
+
+   | State | Men | Women | Joint | Registration |
+   |---|---|---|---|---|
+   | Punjab | 7% | 5% | 6% | 1% |
+   | Haryana, urban | 7% | 5% | 6% | ~1% |
+   | Haryana, rural | 5% | 3% | 4% | ~1% |
+   | Chandigarh | blank | blank | blank | blank |
+
+   The dealer edits the rates in the settings.
+9. **Leases:**
+   - The **commercial lease** has the lessor and lessee, premises, term, lock-in, rent with GST, yearly escalation, fit-out /
+     rent-free days, security deposit, maintenance, the use clause, termination and notice, and a registration clause (must
+     register when the term is over 11 months).
+   - The **registered lease (over 11 months)** is residential. It opens with the note that a lease over 11 months must be
+     registered and stamp duty paid, to delete before printing.
+   - Both are filled from the rent deal and **its tenancy** (term, lock-in, escalation, due day, deposit, rent-free days,
+     use), else the property's rent terms and the deal's price. Missing values print as blanks.
+   - Template warnings: a lease on a sale deal, a lease with no tenancy, a registered lease for 11 months or less, and a
+     commercial lease with no use clause.
+
+**Law, practice, and what is not verified** (from the 2026-11-10 workflow research):
+
+| Rule | Basis | Confidence |
+|---|---|---|
+| Property TDS s.393(1) / s.194-IA, ≥ ₹50 lakh over the whole deal, every instalment, 20% without PAN | Law (Income-tax Act 2025; Finance Act 2024 aggregation) | Secondary source (TDSMan); "or more" is the safe reading |
+| Non-resident seller under s.195, TAN, Form 27Q / 16A | Law | **The Income-tax Act 2025 section that replaces s.195 is not verified.** The app says "s.195" to the user, as the research does, and gives no rate |
+| Brokerage TDS 2% / 20%, ₹20,000 a year, s.393(1) Sl. 1(ii) | Law | Secondary source. The exception for individuals with business turnover, and s.194M, are not researched: the individual default is "generally does not apply" |
+| Haryana 1% brokerage cap | Law (Haryana property dealers rules 2009, rule 10) | Press and law-firm reports |
+| FEMA: no farm land or farmhouse for NRI / OCI | Law | Secondary sources |
+| GPA gives no title | Law (Suraj Lamp 2011, Supreme Court) | Primary (judgment) |
+| GMADA order and days, LOI fee 2.5% | Practice and authority service limits | A local guide and the GMADA checklist; the days are hints, and the fees change yearly |
+| Chandigarh leasehold unearned increase about one-third | Practice | A law-firm article; the Estate Office fee schedule is not read |
+| Police verification | Law (DM / Commissioner orders under s.163 BNSS, offence under s.223 BNS) | Secondary sources and news |
+| Chandigarh Rent Authority intimation within 2 months, UIN | Law (UT of Chandigarh Tenancy Rules 2026) | Press reports. The Assam Tenancy Act text, and whether older tenancies must report, are not verified |
+| Stamp duty Punjab and Haryana | Law | **Secondary sources only** — estimates |
+| Stamp duty Chandigarh (portals say 6 / 4 / 5 + 1) | — | **Not verified**, so it ships blank |
+| Lease registration over 11 months | Law (Registration Act 1908: leases over a year), practice (11-month agreements) | The registered-lease note uses the owner's "over 11 months" wording |
+| GST on commercial under-construction (12% or 18%) | — | **Not verified**; not used by C5 (brokerage GST stays 18%) |
+
+Not done in C5: 26QB / 16B and 27Q / 16A tracking per payment; the collector (circle) rate as the duty base; a deposit
+cap warning (Model Tenancy Act); a separate Chandigarh tenancy template; the double-sale lock; colony status; the "EC"
+step in Punjab registered transfers (fard / jamabandi); the allotment letter and builder-buyer agreement (P2).
 
 **The WhatsApp template the dealer creates** (in the app's WhatsApp templates — zeronova-social
 `ZeroNova_createWhatsAppTemplate`, WAPM; Meta, or MSG91, reviews it; nothing in Real Estate calls Meta). Name

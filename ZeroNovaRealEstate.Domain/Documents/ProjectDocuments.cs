@@ -128,6 +128,10 @@ public sealed class ProjectDocument : CompanyDocumentBase
     [BsonElement("ocReceivedOn")] public string? OcReceivedOn { get; set; }
 
     [BsonElement("city")] public string? City { get; set; }
+
+    /// <summary>The state or UT (C5); its units take it.</summary>
+    [BsonElement("state")] [BsonIgnoreIfNull] public string? State { get; set; }
+
     [BsonElement("locality")] public required string Locality { get; set; }
     [BsonElement("localityKey")] public required string LocalityKey { get; set; }
     [BsonElement("address")] public string? Address { get; set; }

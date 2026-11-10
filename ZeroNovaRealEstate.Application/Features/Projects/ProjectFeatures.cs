@@ -124,6 +124,9 @@ public sealed class SaveProjectHandler(
         })];
 
         p.City = EstateText.Clean(input.City) ?? s.DefaultCity;
+        // C5: null keeps; empty clears (the company's default state applies). The units take it on the sync below.
+        if (input.State is not null)
+            p.State = EstateStates.Normalize(input.State);
         p.Locality = EstateText.Clean(input.Locality)!;
         p.LocalityKey = EstateText.Key(p.Locality);
         p.Address = EstateText.Clean(input.Address);

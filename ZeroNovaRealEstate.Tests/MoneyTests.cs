@@ -122,9 +122,10 @@ public sealed class MoneyTests(MongoFixture mongo) : IAsyncLifetime
         })));
 
         host.Bells.Sent.Clear();
-        await host.RunAsJobAsync(async sp => Assert.Equal(1, await sp.GetRequiredService<RentReminders>().RunOnceAsync(CancellationToken.None)));
+        // The rent bell, and (C5) the police verification bell for a started tenancy with none recorded — each once.
+        await host.RunAsJobAsync(async sp => Assert.Equal(2, await sp.GetRequiredService<RentReminders>().RunOnceAsync(CancellationToken.None)));
         await host.RunAsJobAsync(async sp => Assert.Equal(0, await sp.GetRequiredService<RentReminders>().RunOnceAsync(CancellationToken.None)));
-        Assert.Equal("ESTATE_RENT_DUE", Assert.Single(host.Bells.Sent).Type);
+        Assert.Equal(["ESTATE_POLICE_VERIFICATION", "ESTATE_RENT_DUE"], host.Bells.Sent.Select(b => b.Type).Order());
 
         var month = Today[..7];
         await Assert.ThrowsAsync<ValidatorException>(() => host.SendAs(CompanyA, new RecordRentPaymentCommand(tenancy.Id, new RentPaymentInput("2001-01", 25000m, PaymentMode.Upi, null, null))));

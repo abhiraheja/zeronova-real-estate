@@ -74,6 +74,7 @@ public static class ProjectUnits
         u.DepthFeet = type.DepthFeet;
 
         u.City = project.City;
+        u.State = project.State;
         u.Locality = project.Locality;
         u.LocalityKey = project.LocalityKey;
         u.Society = project.Name;
@@ -389,6 +390,7 @@ public sealed class ProjectMapper(
             new DateTimeOffset(DateTime.SpecifyKind(p.LastConfirmedAt, DateTimeKind.Utc)), p.CreatedBy?.ChangedDate, p.ShowOnWebsite, p.Featured, p.Slug)
         {
             Enquiries = Enquiries.EnquiryCounts.Of(projectEnquiries, p.Id),
+            State = p.State,
             Videos = [.. projectVideos.Select(Videos.EstateVideoBook.Dto)],
         };
     }

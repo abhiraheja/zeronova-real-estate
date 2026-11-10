@@ -63,6 +63,14 @@ public sealed class SchemaTests
             "ZeroNova_estateVideoPlayback(", "ZeroNova_estateShareVideoPlayback(", "ZeroNova_estateWebsiteVideoPlayback(",
             "EstateVideoDto", "EstateVideoUploadDto", "EstateVideoGrantDto", "EstateVideoPartInput", "EstateListingKind", "PROCESSING",
             "videos: [EstateVideoDto!]!", "videos: [EstatePublicVideoDto!]!", "playbackUrl: String!", "partSize: Long!",
+            // C5: compliance fixes and the lease templates.
+            "ZeroNova_updateEstateTenancyCompliance(", "ZeroNova_estateStates", "TenancyComplianceInput", "compliance: TenancyComplianceDto!",
+            "rentAuthorityDueDate: String", "rentAuthorityUin: String", "policeVerificationDue: Boolean!", "agreementDate: String", "rentFreeDays: Int",
+            "permittedUse: String", "tdsDetail: DealTdsDto", "stampDuty: StampDutyEstimateDto", "nonResidentSeller: Boolean!", "tdsSection: String",
+            "GMADA_LOI", "CHANDIGARH_LEASEHOLD", "CHANDIGARH_FREEHOLD", "COMMERCIAL_LEASE", "REGISTERED_LEASE",
+            "residency: PartyResidency", "gender: PartyGender", "FOREIGN_NATIONAL", "OCI", "payerKind: PayerKind", "INDIVIDUAL_OR_HUF", "COMPANY_OR_FIRM",
+            "tdsNote: String", "defaultState: String", "dealerPan: String", "stampDutyRates: [StampDutyRateDto!]!", "StampDutyRateInput", "RURAL",
+            "typicalDays: Int", "hint: String", "step: Int", "rural: Boolean", "state: String", "warnings: [String!]!",
         })
             Assert.Contains(field, sdl);
 
