@@ -63,13 +63,15 @@ public static partial class AgreementEngine
             v["earnest.figures"] = IndianWords.Figures(Math.Round(d.Price * pct / 100m, 0));
             v["earnest.words"] = IndianWords.Rupees(Math.Round(d.Price * pct / 100m, 0));
         }
-        // The property TDS (C5): due at ₹50 lakh or more over the whole deal, under the section of the agreement's date;
-        // a non-resident seller's share is s.195 (named, no figure).
+        // The property TDS (C5): due at ₹50 lakh or more over the whole deal, under the section of the agreement's date, per
+        // resident seller (tds.sellers: each one's rate and amount; tds.figures: the total; tds.percent: the blended rate
+        // over the whole price); a non-resident seller's share is s.195 (named, no figure).
         if (tds.On(d.Price) is { } onPrice && onPrice > 0)
         {
             v["tds.figures"] = IndianWords.Figures(onPrice);
             v["tds.words"] = IndianWords.Rupees(onPrice);
-            v["tds.percent"] = tds.RatePercent!.Value.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture);
+            v["tds.percent"] = Deals.PropertyTds.Percent(tds.RatePercent!.Value);
+            v["tds.sellers"] = Deals.PropertyTds.PartsText(tds, d.Price);
         }
         if (tds.Sale)
             v["tds.section"] = Deals.PropertyTds.Section(d.ExecutionDate, today);

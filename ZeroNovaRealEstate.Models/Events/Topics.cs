@@ -144,6 +144,18 @@ public static class EnquiryMetadata
 
     public const string ProductRealEstate = "REAL_ESTATE";
     public const string SharePageForm = "share-page";
+
+    /// <summary>
+    /// The form of a staff "Add enquiry": <c>staff-call</c>, <c>staff-walk-in</c>, <c>staff-whatsapp</c>, <c>staff-other</c>.
+    /// Always sent, so zeronova-lead never falls back to the lead's first form (a share page's, say).
+    /// </summary>
+    public static string StaffForm(Enquiries.EnquirySource source) => source switch
+    {
+        Enquiries.EnquirySource.Call => "staff-call",
+        Enquiries.EnquirySource.WalkIn => "staff-walk-in",
+        Enquiries.EnquirySource.WhatsApp => "staff-whatsapp",
+        _ => "staff-other",
+    };
 }
 
 /// <summary>

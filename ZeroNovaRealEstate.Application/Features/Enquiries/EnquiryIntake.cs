@@ -156,7 +156,7 @@ public sealed class LeadEnquiryReceivedHandler(
             Ref = reference,
             OccurredAt = occurred == default ? now : occurred,
             Source = SourceOf(n, meta),
-            Form = EstateText.Clean(meta.GetValueOrDefault(EnquiryMetadata.Form)) ?? EstateText.Clean(n.Form),
+            Form = FormOf(n, meta),
             Channel = EstateText.Clean(n.Channel),
             LeadId = EstateText.Clean(n.LeadId),
             ContactId = EstateText.Clean(n.ContactId),
@@ -249,6 +249,22 @@ public sealed class LeadEnquiryReceivedHandler(
         var form = EstateText.Clean(meta.GetValueOrDefault(EnquiryMetadata.Form)) ?? EstateText.Clean(n.Form);
         return form is not null && EstateWebsiteForms.Contains(form.ToLowerInvariant())
             && await websites.GetDocuments(w => w.Enabled, false, company).AnyAsync(ct);
+    }
+
+    /// <summary>
+    /// The capture's own form: the metadata's <c>form</c>. Only a website capture falls back to the payload's
+    /// <c>Form</c> — zeronova-lead fills that from the LEAD's first form when the capture has none, so a staff "Add
+    /// enquiry" on a lead first made from a share page would read "share-page". Our own (<see cref="OwnRefPrefix"/>) and
+    /// the AI office's (<see cref="OfficeRefPrefix"/>) captures never take it.
+    /// </summary>
+    public static string? FormOf(LeadEnquiryReceivedNotification n, IReadOnlyDictionary<string, string> meta)
+    {
+        if (EstateText.Clean(meta.GetValueOrDefault(EnquiryMetadata.Form)) is { } own)
+            return own;
+        var reference = n.ExternalRef?.Trim() ?? string.Empty;
+        return reference.StartsWith(OwnRefPrefix, StringComparison.Ordinal) || reference.StartsWith(OfficeRefPrefix, StringComparison.Ordinal)
+            ? null
+            : EstateText.Clean(n.Form);
     }
 
     private static bool IsRealEstateProduct(string? product) =>

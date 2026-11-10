@@ -268,8 +268,9 @@ GraphQL:
   state), menPercent, womenPercent, jointPercent, registrationPercent, note}]`; `EstateSettingsInput.stampDutyRates`
   replaces the list (null keeps, an empty list goes back to the defaults).
 - **Agreements:** `AgreementKind` adds COMMERCIAL_LEASE and REGISTERED_LEASE; the ready templates `builtin:commercial-lease`
-  and `builtin:registered-lease`. New placeholders, usable in the dealer's own Word files too: `tds.percent`, `tds.section`,
-  `tds.nri`, `.tds` inside `payments` and `schedule`, `rent.figures` / `rent.words`, `rent.dueday`, `lease.months` /
+  and `builtin:registered-lease`. New placeholders, usable in the dealer's own Word files too: `tds.percent` (the blended rate over
+  the whole price), `tds.sellers` (each resident seller's rate and amount: "1% of Harpreet Singh's share (Rs. 42,500/-)"),
+  `tds.section`, `tds.nri`, `.tds` inside `payments` and `schedule`, `rent.figures` / `rent.words`, `rent.dueday`, `lease.months` /
   `lease.months.words`, `lease.start`, `lease.end`, `lease.lockin`, `lease.escalation`, `lease.rentfree`, `lease.notice`,
   `lease.use`, `lease.registration`, `deposit.figures` / `deposit.words`, `maintenance.figures`.
 
@@ -462,3 +463,18 @@ After C1–C5 went to dev, a review found these; each has a test in `ReviewFixTe
   applies the rule again.
 - **Party residency and gender.** `null` keeps the saved value. `clearResidency: true` / `clearGender: true` removes it, back to
   "not set".
+
+## 8.4 End-to-end fixes on dev
+
+- **A staff enquiry's form.** `ZeroNova_addEstateEnquiry` always sends `form` in the metadata: `staff-call`, `staff-walk-in`,
+  `staff-whatsapp` or `staff-other` (the share page sends `share-page`). zeronova-lead's payload `Form` falls back to the
+  LEAD's first form when a capture has none, so the consumer never reads it for our own (`estate:`) or the AI office's
+  (`office:`) captures. A website capture takes the metadata's `form` too, and the payload's only when it has none.
+- **Demand groups without a purpose.** A website search that did not say sale or rent joins the same locality / type / BHK /
+  band group of SALE, else RENT, counted under `WEBSITE_SEARCH`. It keeps a group of its own (purpose null) only when no
+  purpose has that group.
+- **Property TDS per seller.** The warning says the rate per seller, never one rate "on the full price": "TDS under s.393(1)
+  of the Income-tax Act 2025: 1% of each resident seller's share (Rs. 42,500/- in all) — …" ("1% of the price" when every
+  seller is resident at one rate). A non-resident seller's s.195 line stays separate. `DealTdsDto.ratePercent` is unchanged:
+  the blended rate over the whole price (a resident 50% and an NRI 50% is 0.5%). The TDS on an amount is each resident
+  seller's part rounded and summed. The ready agreements use `tds.sellers` ("1% of Harpreet Singh's share (Rs. 42,500/-)").

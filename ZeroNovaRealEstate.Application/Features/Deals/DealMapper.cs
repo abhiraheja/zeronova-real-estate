@@ -131,11 +131,11 @@ public static class DealChecks
     private static IEnumerable<string> TdsWarnings(DealDocument d, PropertyDocument p, IReadOnlyDictionary<string, PartyDocument> people, DealCheckContext x)
     {
         var tds = PropertyTds.For(d, p, people);
-        if (tds.ResidentDue && tds.RatePercent is { } rate)
+        if (tds.ResidentDue && tds.RatePercent is not null)
         {
+            // Per seller, never one rate "on the full price": a non-resident's share is s.195 (its own line below).
             var section = PropertyTds.Section(d.ExecutionDate, x.Today);
-            var head = rate == 1m ? "1% TDS" : $"TDS of {rate:0.##}%";
-            yield return $"{head} ({IndianWords.Figures(tds.On(d.Price)!.Value)}) is due on the full price under {section} — the deal is ₹50 lakh or more "
+            yield return $"TDS under {section}: {PropertyTds.Basis(tds)} ({IndianWords.Figures(tds.On(d.Price)!.Value)} in all) — the deal is ₹50 lakh or more "
                 + "(all buyers and sellers together). The buyer deducts it from every payment, the token included.";
             foreach (var seller in tds.Sellers.Where(s => s is { NoPan: true, NonResident: false }))
                 yield return $"{seller.Name} has no PAN on record — TDS on their share is 20%, not 1%.";

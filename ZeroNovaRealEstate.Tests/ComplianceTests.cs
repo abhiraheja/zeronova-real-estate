@@ -91,7 +91,7 @@ public sealed class ComplianceTests(MongoFixture mongo) : IAsyncLifetime
         // Every instalment, the token included, each under the section of its own date.
         Assert.Equal([(1_000m, "s.194-IA"), (4_000m, "s.393(1) of the Income-tax Act 2025")], deal.Payments.Select(p => (p.Tds!.Value, p.TdsSection!)));
         Assert.Equal((45_000m, "s.393(1) of the Income-tax Act 2025"), (deal.Schedule[0].Tds!.Value, deal.Schedule[0].TdsSection!));
-        Assert.Contains(deal.Warnings, w => w.StartsWith("1% TDS (Rs. 50,000/-) is due on the full price under s.194-IA"));
+        Assert.Contains(deal.Warnings, w => w.StartsWith("TDS under s.194-IA: 1% of the price (Rs. 50,000/- in all) — the deal is ₹50 lakh or more"));
 
         // From 1 April 2026 the agreement's clause names the new section.
         var after = await host.SendAs(CompanyA, new SaveDealCommand(deal.Id, new DealInput
@@ -100,7 +100,8 @@ public sealed class ComplianceTests(MongoFixture mongo) : IAsyncLifetime
         }));
         Assert.Equal("s.393(1) of the Income-tax Act 2025", after.TdsDetail!.Section);
         var preview = await host.SendAs(CompanyA, new PreviewAgreementQuery(deal.Id, "builtin:format-a"));
-        Assert.Contains("TDS at 1% (Rs. 50,000/-) on the full price under s.393(1) of the Income-tax Act 2025 from every payment", preview.Text);
+        Assert.Contains("TDS of 1% of Harpreet Singh's share (Rs. 50,000/-), Rs. 50,000/- in all, under s.393(1) of the Income-tax Act 2025 from every payment",
+            preview.Text);
 
         // One rupee less over the whole deal: no TDS.
         var below = await Deal(await Property(49_99_999m, owners: [(seller, HoldingKind.RegisteredSaleDeed)]), [buyer.Id], 49_99_999m,
@@ -128,7 +129,10 @@ public sealed class ComplianceTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Equal(6_30_000m, deal.Tds);
         Assert.Equal(21_000m, deal.Payments[0].Tds);
         Assert.Equal([1m, 20m], deal.TdsDetail.Sellers.Select(s => s.RatePercent!.Value));
-        Assert.Contains(deal.Warnings, w => w.StartsWith("TDS of 10.5%"));
+        Assert.Contains(deal.Warnings, w => w.StartsWith("TDS under s.393(1) of the Income-tax Act 2025: 1% of each resident seller's share, 20% of the share "
+            + "of a seller with no PAN (Rs. 6,30,000/- in all)"));
+        var preview = await host.SendAs(CompanyA, new PreviewAgreementQuery(deal.Id, "builtin:format-a"));
+        Assert.Contains("TDS of 1% of Mira Gupta's share (Rs. 30,000/-) and 20% of Vishal Gupta's share (Rs. 6,00,000/-), Rs. 6,30,000/- in all, under", preview.Text);
         Assert.Contains(deal.Warnings, w => w == "Vishal Gupta has no PAN on record — TDS on their share is 20%, not 1%.");
     }
 
@@ -148,16 +152,41 @@ public sealed class ComplianceTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Null(deal.Payments[0].Tds);
         Assert.Contains(PropertyTds.NonResidentText, tds.Note);
         Assert.Contains(deal.Warnings, w => w == $"Gurpreet Kaur is a non-resident seller (NRI) — {PropertyTds.NonResidentText}.");
-        Assert.DoesNotContain(deal.Warnings, w => w.Contains("1% TDS"));
+        Assert.DoesNotContain(deal.Warnings, w => w.StartsWith("TDS under"));
 
         var preview = await host.SendAs(CompanyA, new PreviewAgreementQuery(deal.Id, "builtin:format-a"));
         Assert.Contains("under section 195 of the Income Tax Act from the payments to Gurpreet Kaur, being non-resident, after obtaining a TAN, file Form 27Q", preview.Text);
-        Assert.DoesNotContain("TDS at", preview.Text);
+        Assert.DoesNotContain("TDS of", preview.Text);
         Assert.Contains(preview.Warnings, w => w.Contains("s.195"));
 
         // Residency and gender are kept when an update leaves them out.
         var kept = await host.SendAs(CompanyA, new SavePartyCommand(nri.Id, new PartyInput { Name = "Gurpreet Kaur", Address = "Toronto" }));
         Assert.Equal((PartyResidency.Nri, PartyGender.Female), (kept.Residency!.Value, kept.Gender!.Value));
+    }
+
+    [Fact]
+    public async Task A_resident_and_a_non_resident_seller_are_worded_per_seller_never_one_rate_on_the_full_price()
+    {
+        var resident = await Party("Harpreet Singh", PartyGender.Male);
+        var nri = await Party("Gurpreet Kaur", PartyGender.Female, PartyResidency.Nri);
+        var buyer = await Party("Anjali Sharma", PartyGender.Female);
+        var flat = await Property(85_00_000m, owners: [(resident, HoldingKind.RegisteredSaleDeed), (nri, HoldingKind.RegisteredSaleDeed)]);
+        var deal = await Deal(flat, [buyer.Id], 85_00_000m,
+            payments: [new DealPaymentInput(PaymentMode.Rtgs, 5_00_000m, "UTR-RN", null, "2026-05-19", buyer.Id)]);
+
+        // ratePercent stays the blended rate over the whole price: 50% at 1%, the NRI's 50% under s.195.
+        Assert.Equal((0.5m, 42_500m), (deal.TdsDetail!.RatePercent!.Value, deal.TdsDetail.OnFullPrice!.Value));
+        Assert.Equal((42_500m, 2_500m), (deal.Tds!.Value, deal.Payments[0].Tds!.Value));
+        Assert.Contains(deal.Warnings, w => w == "TDS under s.393(1) of the Income-tax Act 2025: 1% of each resident seller's share (Rs. 42,500/- in all) — "
+            + "the deal is ₹50 lakh or more (all buyers and sellers together). The buyer deducts it from every payment, the token included.");
+        Assert.Contains(deal.Warnings, w => w == $"Gurpreet Kaur is a non-resident seller (NRI) — {PropertyTds.NonResidentText}.");
+        Assert.DoesNotContain(deal.Warnings, w => w.Contains("0.5%") || w.Contains("full price"));
+
+        // The agreement names each resident seller's part; the NRI's clause stays its own.
+        var preview = await host.SendAs(CompanyA, new PreviewAgreementQuery(deal.Id, "builtin:format-a"));
+        Assert.Contains("TDS of 1% of Harpreet Singh's share (Rs. 42,500/-), Rs. 42,500/- in all, under s.393(1) of the Income-tax Act 2025", preview.Text);
+        Assert.Contains("under section 195 of the Income Tax Act from the payments to Gurpreet Kaur, being non-resident", preview.Text);
+        Assert.DoesNotContain("0.5%", preview.Text);
     }
 
     // ── Brokerage TDS and Haryana's cap ────────────────────────────────────────────────────────────────

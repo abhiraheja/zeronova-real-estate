@@ -65,13 +65,58 @@ public static class PropertyTds
     };
 
     /// <param name="ResidentDue">The 1% (or 20%) TDS is due: the deal is ₹50 lakh or more and a resident seller (or none named yet) is paid.</param>
-    /// <param name="RatePercent">Over the whole of each payment: Σ resident share × rate. Null when nothing is worked out.</param>
+    /// <param name="RatePercent">
+    /// The blended rate over the whole of each payment: Σ resident share × rate (a resident 50% seller at 1% and an NRI's
+    /// 50% under s.195 is 0.5%). Never the rate of any one seller — say it per seller (<see cref="Basis"/>, <see cref="Plan.Parts"/>).
+    /// Null when nothing is worked out.
+    /// </param>
     public sealed record Plan(bool Sale, bool ResidentDue, decimal? RatePercent, IReadOnlyList<DealTdsSellerDto> Sellers, bool NonResidentSeller)
     {
         public bool Applies => ResidentDue || NonResidentSeller;
 
-        public decimal? On(decimal amount) => ResidentDue && RatePercent is { } r ? Math.Round(amount * r / 100m, 0) : null;
+        /// <summary>
+        /// Each resident seller's TDS on <paramref name="amount"/>: their share at their rate, rounded per seller (each
+        /// seller's is deposited on its own Form 26QB). No seller named yet: one part, 1% of the whole. Empty when none is due.
+        /// </summary>
+        public IReadOnlyList<(DealTdsSellerDto? Seller, decimal Tds)> Parts(decimal amount)
+        {
+            if (!ResidentDue || RatePercent is null)
+                return [];
+            if (Sellers.Count == 0)
+                return [(null, Math.Round(amount / 100m, 0))];
+            return [.. Sellers.Where(s => !s.NonResident)
+                .Select(s => ((DealTdsSellerDto?)s, Math.Round(amount * s.SharePercent / 100m * s.RatePercent!.Value / 100m, 0)))];
+        }
+
+        /// <summary>The TDS on <paramref name="amount"/> in all: the sum of <see cref="Parts"/>; null when none is due.</summary>
+        public decimal? On(decimal amount) => ResidentDue && RatePercent is not null ? Parts(amount).Sum(p => p.Tds) : null;
     }
+
+    /// <summary>
+    /// What the resident TDS is taken on, in words: "1% of the price" when every seller is resident at one rate; else
+    /// "1% of each resident seller's share" (with "20% of the share of a seller with no PAN" when the rates differ).
+    /// </summary>
+    public static string Basis(Plan plan)
+    {
+        var residents = plan.Sellers.Where(s => !s.NonResident).ToList();
+        if (residents.Count == 0)
+            return "1% of the price (no seller named yet)";
+        var rates = residents.Select(s => s.RatePercent!.Value).Distinct().Order().ToList();
+        if (rates.Count == 1)
+            return plan.NonResidentSeller ? $"{Percent(rates[0])}% of each resident seller's share" : $"{Percent(rates[0])}% of the price";
+        return "1% of each resident seller's share, 20% of the share of a seller with no PAN";
+    }
+
+    /// <summary>Each resident seller's part in words, for an agreement: "1% of Harpreet Singh's share (Rs. 42,500/-)", joined by "and".</summary>
+    public static string PartsText(Plan plan, decimal amount)
+    {
+        var parts = plan.Parts(amount).Select(p => p.Seller is { } s
+            ? $"{Percent(s.RatePercent!.Value)}% of {s.Name}'s share ({IndianWords.Figures(p.Tds)})"
+            : $"1% of the price ({IndianWords.Figures(p.Tds)})").ToList();
+        return parts.Count <= 1 ? string.Concat(parts) : $"{string.Join(", ", parts[..^1])} and {parts[^1]}";
+    }
+
+    public static string Percent(decimal rate) => rate.ToString("0.##", CultureInfo.InvariantCulture);
 
     public static Plan For(DealDocument d, PropertyDocument p, IReadOnlyDictionary<string, PartyDocument> people)
     {

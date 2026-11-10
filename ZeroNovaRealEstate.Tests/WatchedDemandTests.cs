@@ -450,6 +450,38 @@ public sealed class WatchedDemandTests(MongoFixture mongo) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_website_search_without_a_purpose_joins_the_same_group_of_sale_else_rent_and_stands_alone_only_without_either()
+    {
+        Task<RequirementDto> Rent(string lead, string locality) => host.SendAs(CompanyA, new SaveRequirementCommand(null, new RequirementInput
+        {
+            LeadId = lead, ContactId = "contact-" + lead, LeadName = "Tenant " + lead, LeadPhone = "9811122244", Purpose = PropertyPurpose.Rent,
+            Types = [PropertyType.Flat], Localities = [locality], Bhk = [3], BudgetMax = 30000m,
+        }));
+        // Sector 70 is watched for sale and for rent; Sector 82 for rent only; Sector 90 by nobody.
+        await Close((await Requirement("lead-1", "contact-1", "Rahul Verma")).Id, RequirementStatus.Closed, null, RequirementCloseReason.NotAvailable);
+        await Close((await Rent("lead-2", "Sector 70")).Id, RequirementStatus.Closed, null, RequirementCloseReason.NotAvailable);
+        await Close((await Rent("lead-3", "Sector 82")).Id, RequirementStatus.Closed, null, RequirementCloseReason.NotAvailable);
+        await host.WithAsync(CompanyA, sp => sp.GetRequiredService<ILocalityRepository>().EnsureAsync("Sector 90", "sector 90", "Mohali"));
+
+        var code = (await host.SendAs(CompanyA, new SaveEstateWebsiteSettingsCommand(new EstateWebsiteSettingsInput(true, null)))).Code;
+        foreach (var locality in new[] { "Sector 70", "Sector 70", "Sector 82", "Sector 90" })
+            await Public(new GetEstateWebsitePropertiesQuery(code, new EstateWebsitePropertyFilterInput { Locality = locality }, EstateWebsitePropertySort.Featured, 1, 12));
+
+        var report = await host.SendAs(CompanyA, new GetDemandReportQuery(null, null, [DemandGroupBy.Locality], 14));
+        Assert.Equal(4, report.Totals.Single(t => t.Source == DemandSource.WebsiteSearch).Count);
+        var s70 = report.Groups.Where(g => g.Locality == "Sector 70").OrderBy(g => g.Purpose).ToList();
+        Assert.Equal([PropertyPurpose.Sale, PropertyPurpose.Rent], s70.Select(g => g.Purpose!.Value).Order());
+        var sale = s70.Single(g => g.Purpose == PropertyPurpose.Sale);
+        Assert.Equal([(DemandSource.Watching, 1), (DemandSource.WebsiteSearch, 2)], sale.BySource.Select(b => (b.Source, b.Count)));
+        Assert.Equal([(DemandSource.Watching, 1)], s70.Single(g => g.Purpose == PropertyPurpose.Rent).BySource.Select(b => (b.Source, b.Count)));
+        var s82 = Assert.Single(report.Groups, g => g.Locality == "Sector 82");
+        Assert.Equal((PropertyPurpose.Rent, 2), (s82.Purpose, s82.Total));
+        var s90 = Assert.Single(report.Groups, g => g.Locality == "Sector 90");
+        Assert.Equal(((PropertyPurpose?)null, 1), (s90.Purpose, s90.Total));
+        Assert.DoesNotContain(report.Groups, g => g.Purpose is null && g.Locality is "Sector 70" or "Sector 82");
+    }
+
+    [Fact]
     public async Task The_projects_list_counts_each_projects_enquiries()
     {
         var project = await host.SendAs(CompanyA, new SaveProjectCommand(null, new ProjectInput

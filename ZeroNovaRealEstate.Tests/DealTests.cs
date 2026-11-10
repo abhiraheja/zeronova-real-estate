@@ -82,7 +82,7 @@ public sealed class DealTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Equal((2100000m, 19500000m, 2160000m, 216000m), (deal.Paid, deal.Balance, deal.EarnestAmount, deal.Tds));
         Assert.Equal("Rupees Two Crore Sixteen Lakh Only", deal.PriceInWords);
         Assert.Equal("builder_no_dues", deal.Checklist[0].Key);
-        Assert.Contains(deal.Warnings, w => w.StartsWith("1% TDS"));
+        Assert.Contains(deal.Warnings, w => w.StartsWith("TDS under s.393(1) of the Income-tax Act 2025: 1% of the price (Rs. 2,16,000/- in all)"));
         Assert.DoesNotContain(deal.Warnings, w => w.Contains("not a seller"));
     }
 
@@ -156,7 +156,7 @@ public sealed class DealTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Contains("balance sum of Rs. 1,95,00,000/-", preview.Text);
         Assert.Contains("before or by 30th December 2026", preview.Text);
         Assert.Contains("the 3 BHK Flat No. 411, 4th Floor, Tower 3, Beverly Golf Avenue, Sector 65, Mohali, comprising a total area of 2,072.05 sq ft", preview.Text);
-        Assert.Contains("TDS at 1% (Rs. 2,16,000/-)", preview.Text);
+        Assert.Contains("and 1% of Vishal Gupta's share (Rs. 1,08,000/-), Rs. 2,16,000/- in all, under", preview.Text);
         Assert.Contains("1. Two covered car parking spaces", preview.Text);
         Assert.Contains("WITNESS 2: Suresh, Kharar", preview.Text);
 

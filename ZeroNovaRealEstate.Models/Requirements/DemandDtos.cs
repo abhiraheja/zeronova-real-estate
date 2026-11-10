@@ -31,7 +31,8 @@ public sealed record DemandSampleDto(DemandSource Source, string Id, string? Cod
 public sealed record DemandSourceCountDto(DemandSource Source, int Count);
 
 /// <summary>
-/// One group, always within a purpose (sale and rent demand never mix; null = a website search that did not say): the values
+/// One group, always within a purpose (sale and rent demand never mix). A website search that did not say a purpose is
+/// counted in the same locality/type/BHK/band group of SALE (else RENT); null = only such searches, no purpose has the group. The values
 /// of the asked dimensions (null = that dimension not asked; <c>Any</c> = the demand did not say).
 /// <see cref="Type"/> is a <see cref="PropertyType"/> name, <see cref="Bhk"/> a number, <see cref="BudgetBand"/> a band
 /// such as <c>50L-1Cr</c> (sale) or <c>25k-50k</c> (rent, a month). Counts per source (website searches are counted

@@ -80,7 +80,8 @@ public sealed class DemandSignals(IDemandSignalRepository signals, ILocalityRepo
 }
 
 /// <summary>
-/// The unmet-demand report (D34), grouped by locality, type, BHK and budget band (each within its purpose), so the dealer
+/// The unmet-demand report (D34), grouped by locality, type, BHK and budget band (each within its purpose; a website search
+/// that did not say a purpose joins the same group of SALE, else RENT, and stands alone only when neither has it), so the dealer
 /// knows what to source. As they stand now: (a) watched requirements, (b) active requirements with no match at all for
 /// <paramref name="UnmatchedDays"/> days or more. In the window (India days <paramref name="From"/> to <paramref name="To"/>,
 /// both included; default the last 90 days): (c) requirements closed not available (by code, or the old note), (d)
@@ -188,12 +189,13 @@ public sealed class GetDemandReportHandler(
                 names.TryAdd(x.LocalityKey ?? EstateText.Key(x.Locality), x.Locality);
         }
 
-        // Grouping: every row in every group its criteria fall in.
+        // Grouping: every row in every group its criteria fall in. Rows with a purpose first; then a website search that did
+        // not say one joins the same locality/type/BHK/band group of a purpose (SALE when both are there), and keeps a
+        // group of its own (purpose null) only when no purpose has that group.
         var groups = new Dictionary<string, (PropertyPurpose? Purpose, string? Locality, string? Type, string? Bhk, string? Band, Dictionary<DemandSource, int> Counts,
             List<DemandSampleDto> Samples)>();
-        foreach (var item in items)
+        foreach (var item in items.Where(i => i.Purpose is not null).Concat(items.Where(i => i.Purpose is null)))
         {
-            var purpose = item.Purpose;
             IReadOnlyList<string?> none = [null];
             IReadOnlyList<string?> any = [Any];
             var localities = !dims.Contains(DemandGroupBy.Locality) ? none : item.LocalityKeys.Count == 0 ? any : [.. item.LocalityKeys];
@@ -205,7 +207,11 @@ public sealed class GetDemandReportHandler(
                 foreach (var type in types.Distinct())
                     foreach (var bhk in bhks.Distinct())
                     {
-                        var key = $"{purpose}|{locality}|{type}|{bhk}|{band}";
+                        var rest = $"{locality}|{type}|{bhk}|{band}";
+                        var purpose = item.Purpose
+                            ?? (groups.ContainsKey($"{PropertyPurpose.Sale}|{rest}") ? PropertyPurpose.Sale
+                                : groups.ContainsKey($"{PropertyPurpose.Rent}|{rest}") ? PropertyPurpose.Rent : null);
+                        var key = $"{purpose}|{rest}";
                         if (!groups.TryGetValue(key, out var group))
                             groups[key] = group = (purpose, locality is null or Any ? locality : names.GetValueOrDefault(locality, locality), type, bhk, band, [], []);
                         group.Counts[item.Source] = group.Counts.GetValueOrDefault(item.Source) + item.Weight;

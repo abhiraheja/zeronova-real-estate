@@ -139,9 +139,11 @@ public sealed record DealTdsSellerDto(string PartyId, string Name, decimal Share
 /// <summary>
 /// The property TDS on a sale (C5, D38). <see cref="Applies"/>: the whole deal (every buyer and seller together) is ₹50
 /// lakh or more, or a seller is non-resident (s.195 has no threshold). <see cref="Section"/>: s.393(1) of the Income-tax
-/// Act 2025 for an agreement on or after 1 April 2026, s.194-IA before. <see cref="RatePercent"/>: over the whole price
-/// (each resident seller's share at 1%, or 20% without a PAN); null when only non-resident sellers. <see cref="OnFullPrice"/>:
-/// the TDS on the whole price. <see cref="Note"/>: what the buyer does.
+/// Act 2025 for an agreement on or after 1 April 2026, s.194-IA before. <see cref="RatePercent"/>: the blended rate over
+/// the whole price — Σ each resident seller's share × their rate (1%, or 20% without a PAN), so a resident 50% seller and
+/// an NRI 50% seller is 0.5%; never one seller's rate (those are in <see cref="Sellers"/>); null when only non-resident
+/// sellers. <see cref="OnFullPrice"/>: the TDS on the whole price in all (each resident seller's part, summed).
+/// <see cref="Note"/>: what the buyer does.
 /// </summary>
 public sealed record DealTdsDto(
     bool Applies,

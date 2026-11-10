@@ -69,13 +69,13 @@ public sealed class EnquiryTests(MongoFixture mongo) : IAsyncLifetime
     /// </summary>
     private static LeadEnquiryReceivedNotification Received(string externalRef, Dictionary<string, string> metadata, string leadId = "lead-1", bool isNew = true,
         DateTimeOffset? at = null, string activityChannel = "Website", string channel = "website", string? assignedTo = "agent-1", string company = CompanyA,
-        string phone = "+919811122233")
+        string phone = "+919811122233", string? leadForm = null)
     {
         var payload = new
         {
             CompanyId = company, LeadId = leadId, ContactId = "contact-" + leadId, NewStatus = "New", NewClassification = "Warm", Source = "Website",
             ChangedBy = "SYSTEM:zeronova-cms", OccurredAt = at ?? DateTimeOffset.UtcNow, Name = "Rahul Verma", FirstName = "Rahul", LastName = "Verma",
-            Phone = phone, Email = "rahul@example.test", Tags = new[] { "Website" }, Channel = channel, Form = metadata.GetValueOrDefault("form"),
+            Phone = phone, Email = "rahul@example.test", Tags = new[] { "Website" }, Channel = channel, Form = leadForm ?? metadata.GetValueOrDefault("form"),
             Product = metadata.GetValueOrDefault("product"), ReceivedOn = "sharmaproperties.in", NewAssignedTo = assignedTo, NewAssignedToName = "Asha",
             IsNewLead = isNew, ActivityId = "act-" + externalRef, ActivityChannel = activityChannel, ExternalRef = externalRef, Metadata = metadata,
             SourceUrl = "https://sharmaproperties.in/property/x", MessagePreview = "Is it still available?", AssignedTo = assignedTo, AssignedToName = "Asha",
@@ -251,19 +251,21 @@ public sealed class EnquiryTests(MongoFixture mongo) : IAsyncLifetime
             (sent.ExternalRef, sent.LeadSource, sent.Channel, sent.Phone, sent.AssignTo, sent.LeadId, changedBy));
         Assert.Equal(new Dictionary<string, string>
         {
-            ["agentId"] = "agent-7", ["estate"] = "1", ["estateSource"] = "WalkIn", ["product"] = "REAL_ESTATE", ["projectId"] = project.Id, ["unitTypeId"] = type.Id,
+            ["agentId"] = "agent-7", ["estate"] = "1", ["estateSource"] = "WalkIn", ["form"] = "staff-walk-in", ["product"] = "REAL_ESTATE", ["projectId"] = project.Id,
+            ["unitTypeId"] = type.Id,
         }, sent.Metadata.OrderBy(kv => kv.Key).ToDictionary());
         Assert.Null(await host.SendAsMember(CompanyA, "agent-7", Agent, new GetEnquiryByRefQuery(ack.Ref)));   // still being recorded
 
         // The lead already had another owner: the enquiry stays with the agent who took it.
         await host.PublishAsync(Echo(sent, owner: "agent-1", activityChannel: "Internal"));
         var e = await host.SendAsMember(CompanyA, "agent-7", Agent, new GetEnquiryByRefQuery(ack.Ref));
-        Assert.Equal((EnquirySource.WalkIn, "agent-7", project.Id, type.Id, "3 BHK"), (e!.Source, e.AgentId, e.ProjectId, e.UnitTypeId, e.UnitTypeName));
+        Assert.Equal((EnquirySource.WalkIn, "staff-walk-in", "agent-7", project.Id, type.Id, "3 BHK"), (e!.Source, e.Form, e.AgentId, e.ProjectId, e.UnitTypeId, e.UnitTypeName));
 
         // A call and a WhatsApp: their lead sources and channels; a picked lead goes as it is.
         await host.SendAs(CompanyA, new AddEnquiryCommand(new AddEnquiryInput { LeadId = "lead-5", PropertyId = flat.Id, Source = EnquirySource.Call }));
         await host.SendAs(CompanyA, new AddEnquiryCommand(new AddEnquiryInput { LeadId = "lead-5", Source = EnquirySource.WhatsApp }));
         var sends = host.Captures.Sent.Skip(1).Select(x => x.Event).ToList();
+        Assert.Equal(["staff-call", "staff-whatsapp"], sends.Select(s => s.Metadata["form"]));
         Assert.Equal([("ManualCall", "Call", "lead-5", "user-test"), ("WhatsApp", "WhatsApp", "lead-5", "user-test")],
             sends.Select(s => (s.LeadSource, s.Channel, s.LeadId!, s.AssignTo!)));
 
@@ -277,6 +279,29 @@ public sealed class EnquiryTests(MongoFixture mongo) : IAsyncLifetime
         await Assert.ThrowsAsync<ValidatorException>(() => host.SendAs(CompanyB, new AddEnquiryCommand(new AddEnquiryInput { LeadId = "lead-5", PropertyId = flat.Id })));
         var managerAck = await host.SendAsMember(CompanyA, "boss", Manager, new AddEnquiryCommand(new AddEnquiryInput { LeadId = "lead-5", AgentId = "agent-8" }));
         Assert.Equal("agent-8", host.Captures.Sent.Single(x => x.Event.ExternalRef == managerAck.Ref).Event.AssignTo);
+    }
+
+    [Fact]
+    public async Task The_form_is_the_captures_own_never_the_leads_first_form_for_our_and_the_offices_captures()
+    {
+        // A staff call on a lead first made from a share page: zeronova-lead's payload Form says "share-page".
+        await host.SendAs(CompanyA, new AddEnquiryCommand(new AddEnquiryInput { LeadId = "lead-1", Source = EnquirySource.Call }));
+        var call = host.Captures.Sent.Single().Event;
+        await host.PublishAsync(Received(call.ExternalRef, new Dictionary<string, string>(call.Metadata), activityChannel: "Call", channel: "call", leadForm: "share-page"));
+        var kept = await host.SendAs(CompanyA, new GetEnquiryByRefQuery(call.ExternalRef));
+        Assert.Equal((EnquirySource.Call, "staff-call"), (kept!.Source, kept.Form));
+
+        // An own capture or the office's without a form in its metadata: no form, never the lead's.
+        await host.PublishAsync(Received("estate:old-1", new() { ["estate"] = "1", ["product"] = "REAL_ESTATE", ["estateSource"] = "Call" }, leadForm: "share-page"));
+        await host.PublishAsync(Received("office:o-1", new() { ["estate"] = "1", ["product"] = "REAL_ESTATE", ["estateSource"] = "AiOffice" }, leadForm: "share-page"));
+        Assert.Null((await host.SendAs(CompanyA, new GetEnquiryByRefQuery("estate:old-1")))!.Form);
+        Assert.Null((await host.SendAs(CompanyA, new GetEnquiryByRefQuery("office:o-1")))!.Form);
+
+        // A website capture: its metadata's form wins; with none, the payload's.
+        await host.PublishAsync(Received("cms-f1", new() { ["product"] = "REAL_ESTATE", ["form"] = "site-visit" }, leadForm: "callback"));
+        await host.PublishAsync(Received("cms-f2", new() { ["product"] = "REAL_ESTATE" }, leadForm: "requirement"));
+        Assert.Equal("site-visit", (await host.SendAs(CompanyA, new GetEnquiryByRefQuery("cms-f1")))!.Form);
+        Assert.Equal("requirement", (await host.SendAs(CompanyA, new GetEnquiryByRefQuery("cms-f2")))!.Form);
     }
 
     // ── Working an enquiry ────────────────────────────────────────────────────────────────────────────

@@ -119,6 +119,7 @@ public sealed class AddEnquiryHandler(IPropertyRepository properties, IProjectRe
             [EnquiryMetadata.Product] = EnquiryMetadata.ProductRealEstate,
             [EnquiryMetadata.Estate] = "1",
             [EnquiryMetadata.Source] = input.Source.ToString(),
+            [EnquiryMetadata.Form] = EnquiryMetadata.StaffForm(input.Source),
             [EnquiryMetadata.AgentId] = agent,
         };
         if (EstateText.Clean(input.AgentName) is { } agentName)
