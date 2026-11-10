@@ -166,6 +166,9 @@ public sealed class PropertyDocument : CompanyDocumentBase
     [BsonElement("videoUrl")] public string? VideoUrl { get; set; }
     [BsonElement("notes")] public string? Notes { get; set; }
 
+    /// <summary>The public description: share pages and the website (the notes never are).</summary>
+    [BsonElement("description")] [BsonIgnoreIfNull] public string? Description { get; set; }
+
     /// <summary>The dealer's own fields: key → value (as text).</summary>
     [BsonElement("custom")] public Dictionary<string, string> Custom { get; set; } = [];
 

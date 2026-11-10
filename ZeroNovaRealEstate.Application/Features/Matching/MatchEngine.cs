@@ -14,10 +14,11 @@ namespace ZeroNovaRealEstate.Application.Features.Matching;
 public sealed record MatchVerdict(bool Fits, int Score, IReadOnlyList<string> Reasons);
 
 /// <summary>
-/// Matching both ways (D10, design 4.5). A property is tried against every active requirement of its purpose when it is
+/// Matching both ways (D10, design 4.5). A property is tried against every active (or watched, D33) requirement of its purpose when it is
 /// saved, re-confirmed or comes back to available; a requirement against the available stock when it is saved. Matches
 /// at or above the dealer's threshold are kept; a new one that no longer fits is dropped; one already shown, interested
-/// or rejected is history and never offered again. Each agent with new matches gets one bell.
+/// or rejected is history and never offered again. Each agent with new matches gets one bell. A new match on a watched
+/// requirement (D33) is <c>revived</c>, with a bell of its own: the customer asked for this earlier.
 /// <para>
 /// Runs inside the save (a dealer's stock is thousands, not millions). The <c>companyId</c> overloads are for the hold
 /// sweep, which runs with no caller.
@@ -48,7 +49,7 @@ public sealed class MatchEngine(
         var s = await EstateSettings.LoadAsync(settings, ct, companyId);
         var now = clock.GetUtcNow().UtcDateTime;
         var candidates = await requirements
-            .GetDocuments(r => r.Status == RequirementStatus.Active && r.Purpose == property.Purpose, false, companyId)
+            .GetDocuments(r => (r.Status == RequirementStatus.Active || r.Status == RequirementStatus.Watching) && r.Purpose == property.Purpose, false, companyId)
             .ToListAsync(ct);
 
         var kept = new List<string>();
@@ -64,7 +65,9 @@ public sealed class MatchEngine(
         }
         await matches.DropNewAsync(property.Id, null, kept, ct, companyId);
 
-        foreach (var group in created.GroupBy(r => r.AgentId))
+        foreach (var revived in created.Where(r => r.Status == RequirementStatus.Watching))
+            await TellRevivedAsync(revived, $"{property.Code}: {property.Title}", ct);
+        foreach (var group in created.Where(r => r.Status != RequirementStatus.Watching).GroupBy(r => r.AgentId))
             await TellAsync(property.CompanyId, group.Key, group.Count() == 1
                     ? $"{property.Code} fits {group.First().LeadName ?? "a customer"}"
                     : $"{property.Code} fits {group.Count()} of your customers",
@@ -75,7 +78,7 @@ public sealed class MatchEngine(
     /// <summary>Tries the requirement against the available stock; answers how many new matches it made.</summary>
     public async Task<int> ForRequirementAsync(RequirementDocument requirement, CancellationToken ct, string? companyId = null)
     {
-        if (requirement.Status != RequirementStatus.Active)
+        if (!Requirements.RequirementClosing.IsMatchable(requirement.Status))
         {
             await matches.DropNewAsync(null, requirement.Id, [], ct, companyId);
             return 0;
@@ -123,7 +126,9 @@ public sealed class MatchEngine(
         }
         await matches.DropNewAsync(null, requirement.Id, kept, ct, companyId);
 
-        if (created > 0)
+        if (created > 0 && requirement.Status == RequirementStatus.Watching)
+            await TellRevivedAsync(requirement, created == 1 ? "1 property fits now" : $"{created} properties fit now", ct);
+        else if (created > 0)
             await TellAsync(requirement.CompanyId, requirement.AgentId,
                 created == 1 ? $"1 property fits {requirement.LeadName ?? "your customer"}" : $"{created} properties fit {requirement.LeadName ?? "your customer"}",
                 null, $"/real-estate/requirements/{requirement.Id}", requirement.Id, ct);
@@ -158,7 +163,7 @@ public sealed class MatchEngine(
         var now = clock.GetUtcNow().UtcDateTime;
         var group = await LoadGroupAsync(projectId, unitTypeId, s, now, ct, companyId);
         var active = await requirements
-            .GetDocuments(r => r.Status == RequirementStatus.Active && r.Purpose == PropertyPurpose.Sale, false, companyId)
+            .GetDocuments(r => (r.Status == RequirementStatus.Active || r.Status == RequirementStatus.Watching) && r.Purpose == PropertyPurpose.Sale, false, companyId)
             .ToListAsync(ct);
         var existing = (await matches.GetDocuments(m => m.GroupKey == group.Key, false, companyId).ToListAsync(ct))
             .GroupBy(m => m.RequirementId).ToDictionary(g => g.Key, g => g.First());
@@ -173,7 +178,9 @@ public sealed class MatchEngine(
             await matches.RemoveNewAsync(stray.Id, ct, companyId);
 
         var what = $"{group.UnitTypeName ?? "A unit type"} in {group.ProjectName ?? "a project"}";
-        foreach (var byAgent in created.GroupBy(r => r.AgentId))
+        foreach (var revived in created.Where(r => r.Status == RequirementStatus.Watching))
+            await TellRevivedAsync(revived, what, ct, group.CompanyId ?? companyId);
+        foreach (var byAgent in created.Where(r => r.Status != RequirementStatus.Watching).GroupBy(r => r.AgentId))
             await TellAsync(group.CompanyId ?? companyId ?? string.Empty, byAgent.Key, byAgent.Count() == 1
                     ? $"{what} fits {byAgent.First().LeadName ?? "a customer"}"
                     : $"{what} fits {byAgent.Count()} of your customers",
@@ -459,15 +466,26 @@ public sealed class MatchEngine(
         PriceWhenMatched = p.PriceValue,
         CreatedAt = now,
         UpdatedAt = now,
+        Revived = r.Status == RequirementStatus.Watching,
     };
 
+    /// <summary>
+    /// A fit for a watched requirement (D33): the agent hears that this customer asked for it earlier — one bell per
+    /// requirement, apart from the ordinary new-match bells.
+    /// </summary>
+    private Task TellRevivedAsync(RequirementDocument requirement, string what, CancellationToken ct, string? companyId = null) =>
+        TellAsync(requirement.CompanyId is { Length: > 0 } c ? c : companyId ?? string.Empty, requirement.AgentId,
+            $"{requirement.LeadName ?? "A customer"} asked for this earlier — now available", what, $"/real-estate/requirements/{requirement.Id}",
+            requirement.Id, ct, "ESTATE_REVIVED_MATCH");
+
     /// <summary>One bell for an agent. A lost bell is logged, never a failed save — the matches are already written.</summary>
-    private async Task TellAsync(string companyId, string agentId, string title, string? body, string url, string correlation, CancellationToken ct)
+    private async Task TellAsync(string companyId, string agentId, string title, string? body, string url, string correlation, CancellationToken ct,
+        string type = "ESTATE_NEW_MATCHES")
     {
         try
         {
             await bell.PublishAsync(new DispatchEventMessage(
-                Guid.NewGuid().ToString(), "ESTATE_NEW_MATCHES", companyId, string.Empty, new { url },
+                Guid.NewGuid().ToString(), type, companyId, string.Empty, new { url },
                 new DispatchDelivery(Realtime: false, Persist: true, Push: "IfOffline"),
                 new DispatchMeta("normal", "zeronova-real-estate", correlation, clock.GetUtcNow()),
                 new DispatchNotification(companyId, [agentId], title, body, url, "building")), ct);

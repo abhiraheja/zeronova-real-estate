@@ -397,9 +397,10 @@ public sealed class ProjectMapper(
         var s = await EstateSettings.LoadAsync(settings, ct);
         var now = clock.GetUtcNow().UtcDateTime;
         var units = (await UnitRowsAsync([.. rows.Select(p => p.Id)], ct)).ToLookup(u => u.ProjectId);
+        var counts = await enquiries.ForProjectsAsync(rows.Select(p => p.Id), ct);
         return [.. rows.Select(p => new ProjectSummaryDto(p.Id, p.Code, p.Name, p.Kind, p.Stage, p.Categories, p.City, p.Locality, p.Photos.FirstOrDefault()?.Url,
             p.PossessionDate, p.BuilderName, ProjectUnits.Count(units[p.Id].Select(u => u.Status)), FromPrice(units[p.Id]), EstateSettings.IsStale(p, s, now),
-            p.ShowOnWebsite, p.Featured))];
+            p.ShowOnWebsite, p.Featured) { Enquiries = Enquiries.EnquiryCounts.Of(counts, p.Id) })];
     }
 
     public async Task<UnitTypeDto> UnitTypeAsync(UnitTypeDocument type, CancellationToken ct)

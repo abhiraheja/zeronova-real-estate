@@ -223,13 +223,13 @@ public static class WebsiteListings
     }
 
     public static EstateWebsitePropertyDto Map(PropertyDocument p) => new(
-        p.Slug ?? string.Empty, p.Code, p.Title, p.Purpose, p.Type, p.Status, p.Featured, p.City, p.Locality, p.Society,
+        p.Id, p.Slug ?? string.Empty, p.Code, p.Title, p.Purpose, p.Type, p.Status, p.Featured, p.City, p.Locality, p.Society,
         AreaMath.Dto(p.PlotArea), AreaMath.Dto(p.BuiltUpArea), AreaMath.Dto(p.CarpetArea), AreaMath.Dto(p.SuperArea), p.SizeSqFt, p.FrontFeet, p.DepthFeet,
         p.Price, p.PriceValue is null, p.Negotiable, p.Rent, p.Deposit, p.Maintenance,
         p.Bhk, p.Bathrooms, p.Balconies, p.Floor, p.TotalFloors, p.Lift, p.CoveredParking, p.OpenParking, p.Furnishing, p.AgeYears, p.Construction,
         p.PossessionDate, p.ServantRoom, p.PoojaRoom, p.StoreRoom, p.StudyRoom, p.PowerBackup, p.Gated, p.Amenities,
         p.Facing, p.Corner, p.ParkFacing, p.RoadWidthFeet, p.Tenure, p.Washrooms, p.Pantry,
-        p.AvailableFrom, p.TenantPreferences, p.PetsAllowed, [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], p.VideoUrl);
+        p.AvailableFrom, p.TenantPreferences, p.PetsAllowed, [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], p.VideoUrl, p.Description);
 }
 
 /// <summary>The website with this code, when it is on — else "not available", the same for a wrong code and a website turned off.</summary>
@@ -277,12 +277,24 @@ public sealed record GetEstateWebsitePropertiesQuery(string Code, EstateWebsiteP
     : IRequest<EstateWebsitePropertyPageDto>;
 
 public sealed class GetEstateWebsitePropertiesHandler(IWebsiteRepository websites, IPropertyRepository properties, IEstateSettingsRepository settings,
-    TimeProvider clock)
+    TimeProvider clock, Requirements.DemandSignals demand)
     : IRequestHandler<GetEstateWebsitePropertiesQuery, EstateWebsitePropertyPageDto>
 {
     public async Task<EstateWebsitePropertyPageDto> Handle(GetEstateWebsitePropertiesQuery request, CancellationToken ct)
     {
         var site = await WebsiteLookup.RequireAsync(websites, request.Code, ct);
+        var page = await SearchAsync(site, request, ct);
+        // Nothing found (D34): the criteria are counted for the demand report — the first page only, never who searched.
+        if (page.TotalCount == 0 && page.Page == 1)
+        {
+            var f = request.Filter;
+            await demand.RecordEmptySearchAsync(site.CompanyId, f.Purpose, f.Types, f.City, f.Locality, f.PriceFrom, f.PriceTo, f.Bhk, ct);
+        }
+        return page;
+    }
+
+    private async Task<EstateWebsitePropertyPageDto> SearchAsync(EstateWebsiteDocument site, GetEstateWebsitePropertiesQuery request, CancellationToken ct)
+    {
         var company = site.CompanyId;
         var f = request.Filter;
         var page = Math.Max(1, request.Page);
@@ -437,7 +449,7 @@ public sealed class GetEstateWebsiteProjectsHandler(IWebsiteRepository websites,
         return [.. rows.Select(p =>
         {
             var types = stock.Types[p.Id].ToList();
-            return new EstateWebsiteProjectSummaryDto(p.Slug ?? string.Empty, p.Name, p.Categories, p.Stage, p.City, p.Locality, p.Photos.FirstOrDefault()?.Url,
+            return new EstateWebsiteProjectSummaryDto(p.Id, p.Slug ?? string.Empty, p.Name, p.Categories, p.Stage, p.City, p.Locality, p.Photos.FirstOrDefault()?.Url,
                 p.LaunchDate, p.PossessionDate, [.. p.Reras.Select(r => r.Number)], [.. types.Select(t => t.Type).Distinct()],
                 [.. types.Select(t => t.Bhk).OfType<int>().Distinct().Order()], stock.FromPrice(types), stock.Availability(p.Id), p.Featured);
         })];
@@ -463,7 +475,7 @@ public sealed class GetEstateWebsiteProjectHandler(
         var types = stock.Types[p.Id].ToList();
         var planRows = await plans.GetDocuments(x => x.ProjectId == p.Id, false, company).OrderBy(x => x.Name).ToListAsync(ct);
 
-        return new EstateWebsiteProjectDto(p.Slug!, p.Name, p.Categories, p.Stage, p.LaunchDate, p.PossessionDate,
+        return new EstateWebsiteProjectDto(p.Id, p.Slug!, p.Name, p.Categories, p.Stage, p.LaunchDate, p.PossessionDate,
             [.. p.Reras.Select(r => new ReraDto(r.Number, r.State, r.RegisteredOn, r.ValidUntil, r.Url))],
             p.City, p.Locality, p.Address, p.Latitude, p.Longitude,
             [.. p.Landmarks.Select(l => new LandmarkDto(l.Name, l.DistanceKm, l.Minutes))], AreaMath.Dto(p.LandArea),

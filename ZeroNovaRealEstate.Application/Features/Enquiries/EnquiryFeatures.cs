@@ -167,8 +167,8 @@ public sealed class AddEnquiryHandler(IPropertyRepository properties, IProjectRe
 // ── Working an enquiry (D31) ──────────────────────────────────────────────────────────────────────────────
 
 /// <summary>
-/// A status change, a close with its reason (not available keeps what was wanted — C3 watches it), a requirement or visit
-/// linked, or (a manager) another agent. Closing never touches the lead: it keeps its own status in zeronova-lead.
+/// A status change, a close with its reason (not available keeps what was wanted and watches it as a requirement of the
+/// lead, D33 — linked as the enquiry's requirement), a requirement or visit linked, or (a manager) another agent. Closing never touches the lead: it keeps its own status in zeronova-lead.
 /// </summary>
 public sealed record UpdateEnquiryCommand(string EnquiryId, UpdateEnquiryInput Input) : IRequest<EnquiryDto>;
 
@@ -182,7 +182,7 @@ public sealed class UpdateEnquiryValidator : AbstractValidator<UpdateEnquiryComm
 }
 
 public sealed class UpdateEnquiryHandler(IEnquiryRepository enquiries, IRequirementRepository requirements, IVisitRepository visits, EstateScope scope, TimeProvider clock,
-    Customers.CustomerBook customers)
+    Customers.CustomerBook customers, Requirements.WatchedDemand watched)
     : IRequestHandler<UpdateEnquiryCommand, EnquiryDto>
 {
     public async Task<EnquiryDto> Handle(UpdateEnquiryCommand request, CancellationToken ct)
@@ -230,6 +230,9 @@ public sealed class UpdateEnquiryHandler(IEnquiryRepository enquiries, IRequirem
                 e.Wanted = reason == EnquiryCloseReason.NotAvailable ? wanted : null;
                 e.CloseNote = EstateText.Clean(input.CloseNote);
                 e.ClosedAt = now;
+                // Not available (D33): the need is watched — a requirement of the lead, matched, revived by a later fit.
+                if (reason == EnquiryCloseReason.NotAvailable)
+                    await watched.WatchEnquiryAsync(e, scope.UserId, ct);
             }
             else
             {

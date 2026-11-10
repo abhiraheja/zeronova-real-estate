@@ -45,6 +45,12 @@ public sealed class SaveEstateSettingsValidator : AbstractValidator<SaveEstateSe
         RuleFor(x => x.Input.ReraNumber).MaximumLength(60);
         RuleFor(x => x.Input.SaleBrokeragePercent).InclusiveBetween(0, 10);
         RuleFor(x => x.Input.RentBrokerageMonths).InclusiveBetween(0, 6);
+        RuleFor(x => x.Input.WatchDays).InclusiveBetween(1, 365).When(x => x.Input.WatchDays is not null)
+            .WithMessage("Watch not-available requirements for 1 to 365 days.");
+        RuleFor(x => x.Input.MatchTemplateName).Matches("^[a-z0-9_]{1,512}$").When(x => !string.IsNullOrWhiteSpace(x.Input.MatchTemplateName))
+            .WithMessage("A WhatsApp template name is lower-case letters, digits and underscores, as zeronova-social lists it.");
+        RuleFor(x => x.Input.MatchTemplateLanguage).Matches("^[a-z]{2,3}(_[A-Za-z]{2,4})?$").When(x => !string.IsNullOrWhiteSpace(x.Input.MatchTemplateLanguage))
+            .WithMessage("A template language is a code like en, hi or en_US.");
         RuleFor(x => x.Input.Gstin).Matches("^[0-9]{2}[A-Za-z0-9]{13}$").When(x => !string.IsNullOrWhiteSpace(x.Input.Gstin))
             .WithMessage("A GSTIN has 15 characters, starting with the state code.");
     }
@@ -76,6 +82,13 @@ public sealed class SaveEstateSettingsHandler(IEstateSettingsRepository settings
         row.DealerAddress = EstateText.Clean(input.DealerAddress);
         row.SaleBrokeragePercent = input.SaleBrokeragePercent;
         row.RentBrokerageMonths = input.RentBrokerageMonths;
+        // C3: null keeps (an app that does not know them yet changes nothing); an empty template name stops using one.
+        if (input.WatchDays is { } watchDays)
+            row.WatchDays = watchDays;
+        if (input.MatchTemplateName is not null)
+            row.MatchTemplateName = EstateText.Clean(input.MatchTemplateName);
+        if (input.MatchTemplateLanguage is not null)
+            row.MatchTemplateLanguage = EstateText.Clean(input.MatchTemplateLanguage);
         if (isNew)
             await settings.AddAsync(row, ct);
         else
@@ -88,7 +101,7 @@ internal static class SettingsMapping
 {
     public static EstateSettingsDto ToDto(EstateSettingsDocument s) => new(s.MarlaSqFt, s.KanalSqFt, s.BighaSqFt, s.BiswaSqFt, s.KathaSqFt,
         s.BudgetTolerancePercent, s.SaleFreshDays, s.RentFreshDays, s.MatchThreshold, s.DefaultCity, s.ReraNumber, s.DealerName, s.DealerPhone,
-        s.GstRegistered, s.Gstin, s.DealerAddress, s.SaleBrokeragePercent, s.RentBrokerageMonths);
+        s.GstRegistered, s.Gstin, s.DealerAddress, s.SaleBrokeragePercent, s.RentBrokerageMonths, s.WatchDays, s.MatchTemplateName, s.MatchTemplateLanguage);
 
     public static CustomFieldDto ToDto(CustomFieldDocument f) => new(f.Id, f.Key, f.Label, f.Kind, f.Options, f.PropertyTypes, f.Filterable);
 }

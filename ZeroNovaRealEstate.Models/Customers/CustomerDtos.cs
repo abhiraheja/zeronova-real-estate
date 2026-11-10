@@ -102,8 +102,9 @@ public enum CustomerUnmetKind
 }
 
 /// <summary>
-/// What the customer asked for and did not get (D32): a requirement closed as not available or lost (<see cref="What"/> =
-/// its criteria), or an enquiry closed as not available (<see cref="What"/> = what was wanted). C3 adds watching.
+/// What the customer asked for and did not get (D32): a requirement watched (D33, until <see cref="WatchUntil"/>), closed
+/// as not available or lost (<see cref="What"/> = its criteria), or an enquiry closed as not available (<see cref="What"/> =
+/// what was wanted). <see cref="Reason"/> is the free-text note, <see cref="RequirementCloseReason"/> the code (C3).
 /// </summary>
 public sealed record CustomerUnmetDto(
     CustomerUnmetKind Kind,
@@ -114,7 +115,9 @@ public sealed record CustomerUnmetDto(
     DateTimeOffset? ClosedAt,
     string? AgentId,
     RequirementStatus? RequirementStatus,
-    EnquiryCloseReason? EnquiryCloseReason);
+    EnquiryCloseReason? EnquiryCloseReason,
+    RequirementCloseReason? RequirementCloseReason = null,
+    DateTimeOffset? WatchUntil = null);
 
 /// <summary>
 /// The Real Estate side of a customer's dashboard (D32), as the caller may see it: enquiries, requirements, matches, shares

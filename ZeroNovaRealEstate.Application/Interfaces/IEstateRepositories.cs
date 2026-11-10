@@ -33,7 +33,18 @@ public interface IContactBackfill
 
 public interface IPartyRepository : ICompanyRepositoryBase<PartyDocument>, IContactBackfill;
 
-public interface IRequirementRepository : ICompanyRepositoryBase<RequirementDocument>, IContactBackfill;
+public interface IRequirementRepository : ICompanyRepositoryBase<RequirementDocument>, IContactBackfill
+{
+    /// <summary>Watched requirements (D33) whose watch ended before <paramref name="now"/>, across companies — the watch sweep's read.</summary>
+    Task<IReadOnlyList<RequirementDocument>> WatchesEndedAsync(DateTime now, int take, CancellationToken ct = default);
+}
+
+/// <summary>Website searches that found nothing (D34), counted per day and criteria.</summary>
+public interface IDemandSignalRepository : ICompanyRepositoryBase<DemandSignalDocument>
+{
+    /// <summary>Adds one to the (day, criteria) row of the company, making it the first time (one atomic upsert).</summary>
+    Task RecordAsync(DemandSignalDocument signal, string companyId, CancellationToken ct = default);
+}
 
 /// <summary>The Customers list's summaries (C2): one per customer key, replaced whole on every refresh.</summary>
 public interface ICustomerRepository : ICompanyRepositoryBase<CustomerDocument>
@@ -136,6 +147,12 @@ public interface IContactSyncProducer : IMessageProducer
 public interface ILeadCaptureProducer : IMessageProducer
 {
     Task PublishAsync(LeadCapturedEnquiryEvent evt, string changedBy, CancellationToken ct = default);
+}
+
+/// <summary>A WhatsApp template for zeronova-social to send from the company's line (D33's one-click message).</summary>
+public interface IWhatsAppTemplateProducer : IMessageProducer
+{
+    Task PublishAsync(WhatsAppFirstTouchRequestedEvent evt, CancellationToken ct = default);
 }
 
 /// <summary>A bell (and push when offline) for members, through zeronova-utility's dispatch.</summary>

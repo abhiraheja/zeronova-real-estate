@@ -24,8 +24,8 @@ public static class InfrastructureInstaller
 
         services.AddDomainInstaller();
         services.AddMongo(configuration);
-        // Producers (the agents' bells, contacts and enquiries for zeronova-lead) and the consumer of zeronova-lead's
-        // lead-enquiry-received, from the PubSub assembly; the outbox, inbox and unit of work come from here.
+        // Producers (the agents' bells, contacts and enquiries for zeronova-lead, WhatsApp templates for zeronova-social) and
+        // the consumers of zeronova-lead's lead-enquiry-received and zeronova-social's whatsapp-failed, from the PubSub assembly; the outbox, inbox and unit of work come from here.
         services.AddZeroNovaMessaging(configuration, typeof(PubSubAssembly).Assembly);
 
         services.AddScoped<IPropertyRepository, PropertyRepository>();
@@ -49,11 +49,14 @@ public static class InfrastructureInstaller
         services.AddScoped<IWebsiteRepository, WebsiteRepository>();
         services.AddScoped<IEnquiryRepository, EnquiryRepository>();
         services.AddScoped<ICustomerRepository, CustomerRepository>();
+        services.AddScoped<IDemandSignalRepository, DemandSignalRepository>();
         services.AddHostedService<IndexInitializer>();
         // After the indexes (hosted services start in order): holds that ran out go back to available.
         services.AddHostedService<HoldReleaseJob>();
         services.AddHostedService<VisitReminderJob>();
         services.AddHostedService<RentReminderJob>();
+        // Daily: watched requirements (D33) whose watch ended are closed.
+        services.AddHostedService<WatchExpiryJob>();
 
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(configuration.GetSection(DocumentsOptions.SectionName).Get<DocumentsOptions>() ?? new DocumentsOptions());

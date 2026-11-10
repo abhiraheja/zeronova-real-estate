@@ -75,9 +75,11 @@ public sealed class EstateWebsitePropertyFilterInput
 /// <summary>
 /// A listed property, as its share page shows it plus the other listing fields: never the owners or their contacts, the
 /// unit number, block or map pin, the owner's expectation, the source, keys, mandate, papers, notes or the dealer's own
-/// fields. <see cref="Price"/> is null when the price is on request.
+/// fields. <see cref="Price"/> is null when the price is on request. <see cref="Id"/> is the property's own id (the site may
+/// send it back on an enquiry); <see cref="Description"/> is the dealer's public description, never the private notes.
 /// </summary>
 public sealed record EstateWebsitePropertyDto(
+    string Id,
     string Slug,
     string Code,
     string Title,
@@ -131,7 +133,8 @@ public sealed record EstateWebsitePropertyDto(
     IReadOnlyList<TenantPreference> TenantPreferences,
     bool? PetsAllowed,
     IReadOnlyList<PhotoDto> Photos,
-    string? VideoUrl);
+    string? VideoUrl,
+    string? Description);
 
 public sealed record EstateWebsitePropertyPageDto(int TotalCount, int Page, int PageSize, IReadOnlyList<EstateWebsitePropertyDto> Items);
 
@@ -170,6 +173,7 @@ public enum EstateWebsiteAvailability
 
 /// <summary>A project in the website's list: what it is, where, a cover, its "from" price, its unit types' BHK and types.</summary>
 public sealed record EstateWebsiteProjectSummaryDto(
+    string Id,
     string Slug,
     string Name,
     IReadOnlyList<ProjectCategory> Categories,
@@ -214,6 +218,7 @@ public sealed record EstateWebsitePaymentPlanDto(string Name, PaymentPlanKind Ki
 /// unit numbers, the price list's workings, notes or holds.
 /// </summary>
 public sealed record EstateWebsiteProjectDto(
+    string Id,
     string Slug,
     string Name,
     IReadOnlyList<ProjectCategory> Categories,

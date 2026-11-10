@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Logging;
 using ZeroNova_Packages.Messaging.PubSub;
 using ZeroNovaRealEstate.Application.Features.Enquiries;
+using ZeroNovaRealEstate.Application.Features.Matching;
 using ZeroNovaRealEstate.Application.Interfaces;
 using ZeroNovaRealEstate.Models.Events;
 
@@ -33,6 +34,14 @@ public sealed class LeadCaptureProducer(ProducerServices services, ILogger<LeadC
         ProduceAsync(Topics.LeadCaptured.Enquiry, evt, changedBy, cancellationToken: ct);
 }
 
+/// <summary>A WhatsApp template to a customer (D33), to zeronova-social's <c>whatsapp-sends</c>, through the outbox.</summary>
+public sealed class WhatsAppTemplateProducer(ProducerServices services, ILogger<WhatsAppTemplateProducer> logger)
+    : PubSubProducer<WhatsAppTemplateProducer>(Topics.WhatsAppSends.Topic, services, logger), IWhatsAppTemplateProducer
+{
+    public Task PublishAsync(WhatsAppFirstTouchRequestedEvent evt, CancellationToken ct = default) =>
+        ProduceAsync(Topics.WhatsAppSends.FirstTouchRequested, evt, "real-estate", cancellationToken: ct);
+}
+
 // ── Consumers ────────────────────────────────────────────────────────────────────────────────────────────────────
 // One class per (topic, subscription, event type); the notification and its handler live in Application
 // (Features/Enquiries). The subscription is prefixed with Messaging:Source: zeronova-real-estate.lead-enquiry-sub.
@@ -41,3 +50,8 @@ public sealed class LeadCaptureProducer(ProducerServices services, ILogger<LeadC
 public sealed class LeadEnquiryReceivedConsumer(ConsumerServices services, ILogger<LeadEnquiryReceivedConsumer> logger)
     : PubSubConsumer<LeadEnquiryReceivedConsumer, LeadEnquiryReceivedNotification>(Topics.LeadLifecycle.Topic, Topics.LeadLifecycle.EnquirySubscription,
         Topics.LeadLifecycle.EnquiryReceived, services, logger);
+
+/// <summary>A WhatsApp send zeronova-social refused or failed (D33); the handler marks this service's own (key <c>re:…</c>) on its match.</summary>
+public sealed class WhatsAppFailedConsumer(ConsumerServices services, ILogger<WhatsAppFailedConsumer> logger)
+    : PubSubConsumer<WhatsAppFailedConsumer, WhatsAppSendFailedNotification>(Topics.WhatsAppLifecycle.Topic, Topics.WhatsAppLifecycle.FailedSubscription,
+        Topics.WhatsAppLifecycle.Failed, services, logger);

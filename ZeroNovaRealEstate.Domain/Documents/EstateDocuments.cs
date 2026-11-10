@@ -49,7 +49,20 @@ public sealed class RequirementDocument : CompanyDocumentBase
     [BsonElement("leadPhone")] public string? LeadPhone { get; set; }
     [BsonElement("agentId")] public required string AgentId { get; set; }
     [BsonElement("status")] [BsonRepresentation(BsonType.String)] public RequirementStatus Status { get; set; } = RequirementStatus.Active;
+    /// <summary>The free-text reason — a note beside <see cref="CloseReasonCode"/> (C3); the only reason of a row closed before C3.</summary>
     [BsonElement("closeReason")] public string? CloseReason { get; set; }
+
+    /// <summary>Why it was closed (C3); null on a row closed before C3, or open.</summary>
+    [BsonElement("closeReasonCode")] [BsonRepresentation(BsonType.String)] [BsonIgnoreIfNull]
+    public RequirementCloseReason? CloseReasonCode { get; set; }
+
+    [BsonElement("closedAt")] [BsonIgnoreIfNull] public DateTime? ClosedAt { get; set; }
+
+    /// <summary>While <see cref="RequirementStatus.Watching"/>: when the watch ends (D33); the daily sweep then closes it.</summary>
+    [BsonElement("watchUntil")] [BsonIgnoreIfNull] public DateTime? WatchUntil { get; set; }
+
+    /// <summary>The enquiry it was made from when that enquiry was closed as not available (D33).</summary>
+    [BsonElement("enquiryId")] [BsonIgnoreIfNull] public string? EnquiryId { get; set; }
 
     [BsonElement("purpose")] [BsonRepresentation(BsonType.String)] public PropertyPurpose Purpose { get; set; }
 
@@ -116,6 +129,50 @@ public sealed class MatchDocument : CompanyDocumentBase
 
     /// <summary>How many available units of the type fit the requirement.</summary>
     [BsonElement("availableInGroup")] [BsonIgnoreIfNull] public int? AvailableInGroup { get; set; }
+
+    /// <summary>Made while the requirement was watched (D33): the customer asked for this earlier and it is available now.</summary>
+    [BsonElement("revived")] public bool Revived { get; set; }
+
+    // ── The one-click message (D33).
+
+    [BsonElement("messageVia")] [BsonRepresentation(BsonType.String)] [BsonIgnoreIfNull] public MatchMessageVia? MessageVia { get; set; }
+    [BsonElement("messagedAt")] [BsonIgnoreIfNull] public DateTime? MessagedAt { get; set; }
+
+    /// <summary>The send's key at zeronova-social (<c>re:{companyId}:m:{matchId}:{shareId}</c>), to find the match from its outcome.</summary>
+    [BsonElement("messageKey")] [BsonIgnoreIfNull] public string? MessageKey { get; set; }
+
+    /// <summary>zeronova-social refused or failed the send: its reason (not_connected, template_not_approved, …).</summary>
+    [BsonElement("messageFailed")] [BsonIgnoreIfNull] public string? MessageFailed { get; set; }
+}
+
+/// <summary>
+/// Website searches that found nothing (D34, E2), counted per India day and criteria — never who searched (no IP, no
+/// browser, no person). One row per (company, day, criteria key), its count moved by <c>$inc</c>.
+/// </summary>
+[DocumentName("re_demand_signals")]
+public sealed class DemandSignalDocument : CompanyDocumentBase
+{
+    /// <summary>India day, yyyy-MM-dd.</summary>
+    [BsonElement("day")] public required string Day { get; set; }
+
+    /// <summary>The criteria in one string — the row's identity within the day.</summary>
+    [BsonElement("key")] public required string Key { get; set; }
+
+    [BsonElement("purpose")] [BsonRepresentation(BsonType.String)] [BsonIgnoreIfNull] public PropertyPurpose? Purpose { get; set; }
+
+    [BsonElement("types")]
+    [BsonRepresentation(BsonType.String)]
+    public List<PropertyType> Types { get; set; } = [];
+
+    [BsonElement("city")] [BsonIgnoreIfNull] public string? City { get; set; }
+    [BsonElement("locality")] [BsonIgnoreIfNull] public string? Locality { get; set; }
+    [BsonElement("localityKey")] [BsonIgnoreIfNull] public string? LocalityKey { get; set; }
+
+    /// <summary><c>50L-1Cr</c>, <c>25k-50k</c> …; null = no budget.</summary>
+    [BsonElement("budgetBand")] [BsonIgnoreIfNull] public string? BudgetBand { get; set; }
+
+    [BsonElement("bhk")] public List<int> Bhk { get; set; } = [];
+    [BsonElement("count")] public int Count { get; set; }
 }
 
 /// <summary>The dealer's settings (design 4.2). One per company; missing = the defaults.</summary>
@@ -140,6 +197,14 @@ public sealed class EstateSettingsDocument : CompanyDocumentBase
     [BsonElement("dealerAddress")] public string? DealerAddress { get; set; }
     [BsonElement("saleBrokeragePercent")] public decimal SaleBrokeragePercent { get; set; } = 1m;
     [BsonElement("rentBrokerageMonths")] public decimal RentBrokerageMonths { get; set; } = 1m;
+
+    /// <summary>How long a requirement closed as not available is watched (D33).</summary>
+    [BsonElement("watchDays")] public int WatchDays { get; set; } = 90;
+
+    /// <summary>The company's approved WhatsApp template for "property now available" (D33); null = a wa.me draft.</summary>
+    [BsonElement("matchTemplateName")] [BsonIgnoreIfNull] public string? MatchTemplateName { get; set; }
+
+    [BsonElement("matchTemplateLanguage")] [BsonIgnoreIfNull] public string? MatchTemplateLanguage { get; set; }
 }
 
 /// <summary>

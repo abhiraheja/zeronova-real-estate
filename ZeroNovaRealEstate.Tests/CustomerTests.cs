@@ -318,13 +318,15 @@ public sealed class CustomerTests(MongoFixture mongo) : IAsyncLifetime
         var notAvailable = await Requirement("lead-1", "contact-1");
         var lost = await Requirement("lead-1", "contact-1", purpose: PropertyPurpose.Rent);
         var bought = await Requirement("lead-1", "contact-1");
-        await host.SendAs(CompanyA, new CloseRequirementCommand(notAvailable.Id, new CloseRequirementInput(RequirementStatus.Closed, "Not available in this budget")));
+        await host.SendAs(CompanyA, new CloseRequirementCommand(notAvailable.Id, new CloseRequirementInput(RequirementStatus.Closed, "Not in this budget",
+            RequirementCloseReason.NotAvailable)));
         await host.SendAs(CompanyA, new CloseRequirementCommand(lost.Id, new CloseRequirementInput(RequirementStatus.Lost, "Bought elsewhere")));
-        await host.SendAs(CompanyA, new CloseRequirementCommand(bought.Id, new CloseRequirementInput(RequirementStatus.Closed, "Bought P-0009 through us")));
+        await host.SendAs(CompanyA, new CloseRequirementCommand(bought.Id, new CloseRequirementInput(RequirementStatus.Closed, "Bought P-0009 through us",
+            RequirementCloseReason.BoughtThroughUs)));
         await host.PublishAsync(Enquiry("cms-1", "lead-1", "contact-1", agent: "user-test"));
         await host.PublishAsync(Enquiry("cms-2", "lead-1", "contact-1", agent: "user-test"));
         var enquiries = (await host.SendAs(CompanyA, new GetEnquiriesQuery(new EnquiryFilterInput { ContactId = "contact-1" }))).Items;
-        await host.SendAs(CompanyA, new UpdateEnquiryCommand(enquiries[0].Id, new UpdateEnquiryInput
+        var closed = await host.SendAs(CompanyA, new UpdateEnquiryCommand(enquiries[0].Id, new UpdateEnquiryInput
         {
             Status = EnquiryStatus.Closed, CloseReason = EnquiryCloseReason.NotAvailable, Wanted = "2 BHK in Sector 70 under 60 lakh",
         }));
@@ -333,14 +335,19 @@ public sealed class CustomerTests(MongoFixture mongo) : IAsyncLifetime
             Status = EnquiryStatus.Closed, CloseReason = EnquiryCloseReason.NotInterested,
         }));
 
+        // The enquiry not available made a watched requirement (C3): its need is counted once, as that requirement.
+        var watched = closed.RequirementId!;
         var d = await Dashboard("contact-1");
         Assert.Equal(3, d.Numbers.Unmet);
-        Assert.Equal(new[] { enquiries[0].Id, lost.Id, notAvailable.Id }.Order(), d.Unmet.Select(u => u.Id).Order());
-        var wanted = d.Unmet.Single(u => u.Kind == CustomerUnmetKind.Enquiry);
-        Assert.Equal(("2 BHK in Sector 70 under 60 lakh", enquiries[0].Code, EnquiryCloseReason.NotAvailable), (wanted.What, wanted.Code, wanted.EnquiryCloseReason));
+        Assert.Equal(new[] { watched, lost.Id, notAvailable.Id }.Order(), d.Unmet.Select(u => u.Id).Order());
+        var wanted = d.Unmet.Single(u => u.Id == watched);
+        Assert.Equal((CustomerUnmetKind.Requirement, RequirementStatus.Watching, RequirementCloseReason.NotAvailable),
+            (wanted.Kind, wanted.RequirementStatus, wanted.RequirementCloseReason));
+        Assert.Equal("2 BHK property for sale · Sector 70, Mohali · up to ₹60,00,000", wanted.What);
         var asked = d.Unmet.Single(u => u.Id == notAvailable.Id);
-        Assert.Equal(("3 BHK flat for sale · Sector 70, Mohali · ₹80,00,000 – ₹1,00,00,000", "Not available in this budget", RequirementStatus.Closed),
+        Assert.Equal(("3 BHK flat for sale · Sector 70, Mohali · ₹80,00,000 – ₹1,00,00,000", "Not in this budget", RequirementStatus.Watching),
             (asked.What, asked.Reason, asked.RequirementStatus));
+        Assert.NotNull(asked.WatchUntil);
         Assert.Equal(RequirementStatus.Lost, d.Unmet.Single(u => u.Id == lost.Id).RequirementStatus);
 
         Assert.Equal(3, Assert.Single((await List()).Items).Unmet);

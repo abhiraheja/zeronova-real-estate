@@ -180,6 +180,7 @@ public sealed class SavePropertyValidator : AbstractValidator<SavePropertyComman
         RuleFor(x => x.Input.Locality).NotEmpty().MaximumLength(120);
         RuleFor(x => x.Input.Society).MaximumLength(160);
         RuleFor(x => x.Input.Notes).MaximumLength(4000);
+        RuleFor(x => x.Input.Description).MaximumLength(2000).WithMessage("The description is at most 2,000 characters.");
         RuleFor(x => x.Input.Bhk).InclusiveBetween(0, 20).When(x => x.Input.Bhk is not null);
         RuleFor(x => x.Input.Floor).InclusiveBetween(-3, 200).When(x => x.Input.Floor is not null);
         RuleFor(x => x.Input.Price).LessThanOrEqualTo(100_000_000_000m).When(x => x.Input.Price is not null);

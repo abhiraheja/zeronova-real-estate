@@ -300,6 +300,26 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                     new CreateIndexOptions { Name = "company_leads" }),
             ], ct);
 
+            // Watched demand (C3): the watch sweep's read, a send's outcome back to its match, the zero-result searches by day.
+            await requirements.Indexes.CreateOneAsync(new CreateIndexModel<RequirementDocument>(
+                Builders<RequirementDocument>.IndexKeys.Ascending(r => r.Status).Ascending(r => r.WatchUntil),
+                new CreateIndexOptions<RequirementDocument>
+                {
+                    Name = "watching_until",
+                    PartialFilterExpression = Builders<RequirementDocument>.Filter.Type(r => r.WatchUntil, BsonType.DateTime),
+                }), cancellationToken: ct);
+            await matches.Indexes.CreateOneAsync(new CreateIndexModel<MatchDocument>(
+                Builders<MatchDocument>.IndexKeys.Ascending(m => m.CompanyId).Ascending(m => m.MessageKey),
+                new CreateIndexOptions<MatchDocument>
+                {
+                    Name = "company_message_key",
+                    PartialFilterExpression = Builders<MatchDocument>.Filter.Type(m => m.MessageKey, BsonType.String),
+                }), cancellationToken: ct);
+            var signals = database.GetCollection<DemandSignalDocument>("re_demand_signals");
+            await signals.Indexes.CreateOneAsync(new CreateIndexModel<DemandSignalDocument>(
+                Builders<DemandSignalDocument>.IndexKeys.Ascending(x => x.CompanyId).Ascending(x => x.Day).Ascending(x => x.Key),
+                new CreateIndexOptions { Name = "company_day_key_unique", Unique = true }), cancellationToken: ct);
+
             var counters = database.GetCollection<CounterDocument>("re_counters");
             await counters.Indexes.CreateOneAsync(new CreateIndexModel<CounterDocument>(
                 Builders<CounterDocument>.IndexKeys.Ascending(c => c.CompanyId).Ascending(c => c.Name),

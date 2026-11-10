@@ -68,6 +68,16 @@ public sealed class EstateQuery(IMediator mediator) : QueryBase
     public Task<IReadOnlyList<MatchDto>> Matches(string? propertyId, string? requirementId, MatchStatus? status, CancellationToken ct) =>
         mediator.Send(new GetMatchesQuery(propertyId, requirementId, status), ct);
 
+    /// <summary>
+    /// Unmet demand (D34): watched and unmatched requirements, requirements and enquiries closed not available, and website
+    /// searches that found nothing, grouped by <paramref name="groupBy"/> (default all four) within each purpose. India days,
+    /// both included (default the last 90). <paramref name="unmatchedDays"/>: no match for this long (default 14).
+    /// </summary>
+    [RequirePermission(P.RequirementView)]
+    [GraphQLName("ZeroNova_estateDemandReport")]
+    public Task<DemandReportDto> DemandReport(string? from, string? to, IReadOnlyList<DemandGroupBy>? groupBy, int? unmatchedDays, CancellationToken ct) =>
+        mediator.Send(new GetDemandReportQuery(from, to, groupBy, unmatchedDays ?? 14), ct);
+
     // ── Settings, fields, localities, dashboard
 
     [RequirePermission(P.PropertyView, P.PropertyManage, P.RequirementView, P.RequirementManage, P.SettingsManage)]
@@ -130,6 +140,15 @@ public sealed class EstateMutation(IMediator mediator) : MutationBase
     [RequirePermission(P.RequirementManage)]
     [GraphQLName("ZeroNova_updateEstateMatch")]
     public Task<MatchDto> UpdateMatch(string matchId, MatchUpdateInput input, CancellationToken ct) => mediator.Send(new UpdateMatchCommand(matchId, input), ct);
+
+    /// <summary>
+    /// One click (D33): "this property is now available" to the match's customer — the company's approved WhatsApp template
+    /// through zeronova-social when set (<c>matchTemplateName</c>), else a ready wa.me message for the app to open — with a
+    /// fresh share link. The match is shown from now on.
+    /// </summary>
+    [RequirePermission(P.RequirementManage, P.RequirementView)]
+    [GraphQLName("ZeroNova_sendEstateMatchMessage")]
+    public Task<MatchMessageDto> SendMatchMessage(string matchId, CancellationToken ct) => mediator.Send(new SendMatchMessageCommand(matchId), ct);
 
     [RequirePermission(P.SettingsManage)]
     [GraphQLName("ZeroNova_saveEstateSettings")]

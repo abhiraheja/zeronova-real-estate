@@ -19,18 +19,27 @@ using ZeroNovaRealEstate.Models.Visits;
 namespace ZeroNovaRealEstate.Application.Features.Customers;
 
 /// <summary>
-/// "Highlighted" (D32, D33): a new match on an active requirement within the last <see cref="Days"/> days — the caller's own
-/// matches, or everyone's with PRQV. C3 adds revived matches on watched requirements.
+/// "Highlighted" (D32, D33): a new match on an active requirement within the last <see cref="Days"/> days, or a revived new
+/// match on a watched requirement however old (until it is shown or rejected, or the watch ends) — the caller's own
+/// matches, or everyone's with PRQV.
 /// </summary>
 public static class CustomerHighlights
 {
     public const int Days = 7;
 
+    /// <summary>The rule for one match of a requirement.</summary>
+    public static bool IsHot(MatchDocument m, RequirementStatus status, DateTime utcNow) => IsHot(m.Status, m.CreatedAt, m.Revived, status, utcNow);
+
+    public static bool IsHot(MatchStatus match, DateTime createdAt, bool revived, RequirementStatus status, DateTime utcNow) =>
+        match == MatchStatus.New
+        && ((status == RequirementStatus.Active && createdAt >= utcNow.AddDays(-Days)) || (status == RequirementStatus.Watching && revived));
+
     public static async Task<HashSet<string>> HotRequirementIdsAsync(IMatchRepository matches, IRequirementRepository requirements, EstateScope scope,
         TimeProvider clock, IReadOnlyCollection<string>? among, CancellationToken ct)
     {
-        var cut = clock.GetUtcNow().UtcDateTime.AddDays(-Days);
-        var query = matches.GetDocuments(m => m.Status == MatchStatus.New && m.CreatedAt >= cut);
+        var now = clock.GetUtcNow().UtcDateTime;
+        var cut = now.AddDays(-Days);
+        var query = matches.GetDocuments(m => m.Status == MatchStatus.New && (m.CreatedAt >= cut || m.Revived));
         if (!scope.SeesAllRequirements)
         {
             var me = scope.UserId;
@@ -41,10 +50,16 @@ public static class CustomerHighlights
             var ids = among.ToList();
             query = query.Where(m => ids.Contains(m.RequirementId));
         }
-        var candidates = await query.Select(m => m.RequirementId).Distinct().ToListAsync(ct);
-        if (candidates.Count == 0)
+        var found = await query.Select(m => new { m.RequirementId, m.CreatedAt, m.Revived }).ToListAsync(ct);
+        if (found.Count == 0)
             return [];
-        return [.. await requirements.GetDocuments(r => candidates.Contains(r.Id) && r.Status == RequirementStatus.Active).Select(r => r.Id).ToListAsync(ct)];
+        var candidates = found.Select(m => m.RequirementId).Distinct().ToList();
+        var statuses = (await requirements.GetDocuments(r => candidates.Contains(r.Id)
+                && (r.Status == RequirementStatus.Active || r.Status == RequirementStatus.Watching)).Select(r => new { r.Id, r.Status }).ToListAsync(ct))
+            .ToDictionary(r => r.Id, r => r.Status);
+        return [.. found.Where(m => statuses.TryGetValue(m.RequirementId, out var status)
+                && IsHot(MatchStatus.New, m.CreatedAt, m.Revived, status, now))
+            .Select(m => m.RequirementId)];
     }
 }
 
@@ -170,14 +185,15 @@ public sealed class GetCustomerHandler(
 
         var requirementDtos = await RequirementMapping.ManyAsync(requirementRows, matches, ct);
         var matchTotals = matchRows.GroupBy(m => m.RequirementId).ToDictionary(g => g.Key, g => g.Count());
-        var activeRequirements = requirementRows.Where(r => r.Status == RequirementStatus.Active).Select(r => r.Id).ToHashSet();
-        var highlighted = matchRows.Any(m => m.Status == MatchStatus.New && m.CreatedAt >= now.AddDays(-CustomerHighlights.Days) && activeRequirements.Contains(m.RequirementId));
+        var statusOf = requirementRows.ToDictionary(r => r.Id, r => r.Status);
+        var highlighted = matchRows.Any(m => statusOf.TryGetValue(m.RequirementId, out var status) && CustomerHighlights.IsHot(m, status, now));
 
         var shownMatches = matchRows.OrderBy(m => m.Status).ThenByDescending(m => m.CreatedAt).Take(MaxMatches).ToList();
         var unmet = requirementRows.Where(CustomerRules.IsUnmet)
             .Select(r => new CustomerUnmetDto(CustomerUnmetKind.Requirement, r.Id, null, CustomerRules.Summary(r), r.CloseReason,
-                GetCustomersHandler.Utc((r.UpdatedBy?.ChangedDate ?? r.CreatedBy?.ChangedDate)?.UtcDateTime), r.AgentId, r.Status, null))
-            .Concat(enquiryRows.Where(CustomerRules.IsUnmet)
+                GetCustomersHandler.Utc(r.ClosedAt ?? (r.UpdatedBy?.ChangedDate ?? r.CreatedBy?.ChangedDate)?.UtcDateTime), r.AgentId, r.Status, null,
+                r.CloseReasonCode, GetCustomersHandler.Utc(r.WatchUntil)))
+            .Concat(enquiryRows.Where(e => CustomerRules.IsUnmet(e, rows.Requirements))
                 .Select(e => new CustomerUnmetDto(CustomerUnmetKind.Enquiry, e.Id, e.Code, e.Wanted ?? e.PropertyTitle ?? e.ProjectName ?? "—", e.CloseNote,
                     GetCustomersHandler.Utc(e.ClosedAt), e.AgentId, null, e.CloseReason)))
             .OrderByDescending(u => u.ClosedAt).ToList();

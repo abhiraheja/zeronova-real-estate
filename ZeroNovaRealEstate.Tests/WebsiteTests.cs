@@ -510,4 +510,45 @@ public sealed class WebsiteTests(MongoFixture mongo) : IAsyncLifetime
                  })
             Assert.DoesNotContain(secret, json);
     }
+
+    [Fact]
+    public async Task Listings_carry_their_own_ids_and_the_public_description_but_never_the_notes()
+    {
+        var code = await WebsiteOn();
+        var flat = await Add(Flat());
+        var described = await host.SendAs(CompanyA, new SavePropertyCommand(flat.Id, new PropertyInput
+        {
+            Purpose = PropertyPurpose.Sale, Type = PropertyType.Flat, City = "Mohali", Locality = "Sector 70", Bhk = 3, Price = 9500000m, ShowOnWebsite = true,
+            Notes = "Owner divorcing, needs quick sale", Description = "  Sunny corner flat, 2 min from the market.  ",
+        }));
+        Assert.Equal("Sunny corner flat, 2 min from the market.", described.Description);
+        // Null keeps it; empty clears it.
+        var kept = await host.SendAs(CompanyA, new SavePropertyCommand(flat.Id, new PropertyInput
+        {
+            Purpose = PropertyPurpose.Sale, Type = PropertyType.Flat, City = "Mohali", Locality = "Sector 70", Bhk = 3, Price = 9500000m, ShowOnWebsite = true,
+            Notes = "Owner divorcing, needs quick sale",
+        }));
+        Assert.Equal(described.Description, kept.Description);
+        await Assert.ThrowsAsync<ValidatorException>(() => host.SendAs(CompanyA, new SavePropertyCommand(flat.Id, new PropertyInput
+        {
+            Purpose = PropertyPurpose.Sale, Type = PropertyType.Flat, Locality = "Sector 70", Description = new string('x', 2001),
+        })));
+
+        var item = Assert.Single((await Public(new GetEstateWebsitePropertiesQuery(code, new(), EstateWebsitePropertySort.Newest, 1, 12))).Items);
+        Assert.Equal((flat.Id, "Sunny corner flat, 2 min from the market."), (item.Id, item.Description));
+        var page = await Public(new GetEstateWebsitePropertyQuery(code, kept.WebsiteSlug!));
+        Assert.Equal(flat.Id, page.Property!.Id);
+        var share = await host.SendAs(CompanyA, new Application.Features.Visits.CreateShareCommand(flat.Id, null));
+        var shared = await Public(new Application.Features.Visits.GetSharedPropertyQuery(share.Token));
+        Assert.Equal("Sunny corner flat, 2 min from the market.", shared.Description);
+        foreach (var json in new[] { JsonSerializer.Serialize(item), JsonSerializer.Serialize(page), JsonSerializer.Serialize(shared) })
+            Assert.DoesNotContain("divorcing", json);
+
+        var project = await host.SendAs(CompanyA, new SaveProjectCommand(null, Own()));
+        var summary = Assert.Single(await Public(new GetEstateWebsiteProjectsQuery(code)));
+        Assert.Equal(project.Id, summary.Id);
+        var projectPage = await Public(new GetEstateWebsiteProjectQuery(code, summary.Slug));
+        Assert.Equal(project.Id, projectPage!.Id);
+        Assert.DoesNotContain("Bansal", JsonSerializer.Serialize(projectPage));
+    }
 }

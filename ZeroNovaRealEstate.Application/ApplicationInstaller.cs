@@ -50,6 +50,9 @@ public static class ApplicationInstaller
         services.AddScoped<Features.Enquiries.EnquiryCounts>();
         // Customers (C2): the Customers list's summaries, kept on every write of a customer's rows, and the contact links.
         services.AddScoped<Features.Customers.CustomerBook>();
+        // Watched demand (C3): enquiries closed as not available become watched requirements; the watch sweep.
+        services.AddScoped<Features.Requirements.WatchedDemand>();
+        services.AddScoped<Features.Requirements.DemandSignals>();
 
         return services;
     }

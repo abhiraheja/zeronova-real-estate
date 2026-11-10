@@ -108,7 +108,8 @@ public sealed record SharedPropertyDto(
     string? DealerName,
     string? DealerPhone,
     string? ReraNumber,
-    bool StillAvailable);
+    bool StillAvailable,
+    string? Description = null);
 
 /// <summary>A ready WhatsApp message (M2) — the app opens it in WhatsApp (wa.me) from the dealer's own phone.</summary>
 public sealed record WhatsAppDraftDto(string? Phone, string Text, string? Link);

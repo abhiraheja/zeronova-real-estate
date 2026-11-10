@@ -52,6 +52,11 @@ public sealed class PartyRepository(IMongoDatabase database, IRequestContext con
 public sealed class RequirementRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<RequirementDocument>(database, context), IRequirementRepository
 {
+    // Deliberately across companies — see the interface. Ended watches are few a day.
+    public async Task<IReadOnlyList<RequirementDocument>> WatchesEndedAsync(DateTime now, int take, CancellationToken ct = default) =>
+        await Collection.Find(r => r.Status == RequirementStatus.Watching && !r.IsDeleted && r.WatchUntil != null && r.WatchUntil < now)
+            .Limit(take).ToListAsync(ct);
+
     public async Task<long> BackfillContactAsync(string leadId, string contactId, CancellationToken ct = default, string? companyId = null)
     {
         var company = ResolveCompanyId(companyId);
@@ -204,6 +209,32 @@ public sealed class EnquiryRepository(IMongoDatabase database, IRequestContext c
         catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
         {
             return false;   // the same event, delivered twice at once; that one stands
+        }
+    }
+}
+
+public sealed class DemandSignalRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<DemandSignalDocument>(database, context), IDemandSignalRepository
+{
+    public async Task RecordAsync(DemandSignalDocument signal, string companyId, CancellationToken ct = default)
+    {
+        var u = Builders<DemandSignalDocument>.Update;
+        var update = u.Inc(x => x.Count, 1)
+            .SetOnInsert(x => x.Id, GetNewId).SetOnInsert(x => x.IsDeleted, false).SetOnInsert(x => x.Purpose, signal.Purpose)
+            .SetOnInsert(x => x.Types, signal.Types).SetOnInsert(x => x.City, signal.City).SetOnInsert(x => x.Locality, signal.Locality)
+            .SetOnInsert(x => x.LocalityKey, signal.LocalityKey).SetOnInsert(x => x.BudgetBand, signal.BudgetBand).SetOnInsert(x => x.Bhk, signal.Bhk);
+        var row = Builders<DemandSignalDocument>.Filter.Where(x => x.CompanyId == companyId && x.Day == signal.Day && x.Key == signal.Key);
+        for (var attempt = 0; ; attempt++)
+        {
+            try
+            {
+                await Collection.UpdateOneAsync(row, update, new UpdateOptions { IsUpsert = true }, ct);
+                return;
+            }
+            catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey && attempt == 0)
+            {
+                // Made by a parallel search a moment ago; count on that one.
+            }
         }
     }
 }

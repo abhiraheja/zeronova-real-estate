@@ -53,6 +53,11 @@ public sealed class SchemaTests
             "ZeroNova_estateCustomers(", "ZeroNova_estateCustomer(", "EstateCustomerFilterInput", "EstateCustomerPageDto", "EstateCustomerDashboardDto",
             "hasOpenRequirement: Boolean", "highlighted: Boolean!", "unmet: [CustomerUnmetDto!]!", "ownedProperties: [CustomerOwnedPropertyDto!]",
             "deals: [DealDto!]", "tenancies: [TenancyDto!]", "dealsByStage: [CustomerStageCountDto!]", "contactId: String", "leadIds: [String!]!",
+            "ZeroNova_estateDemandReport(", "ZeroNova_sendEstateMatchMessage(", "DemandReportDto", "DemandGroupDto", "MatchMessageDto", "WATCHING",
+            "BOUGHT_THROUGH_US", "RENTED_ELSEWHERE", "BUDGET_MISMATCH", "closeReasonCode: RequirementCloseReason", "reasonCode: RequirementCloseReason",
+            "watchUntil: DateTime", "revived: Boolean!", "messageVia: MatchMessageVia", "WHATS_APP_TEMPLATE", "draftUrl: String", "shareUrl: String!",
+            "watchDays: Int", "matchTemplateName: String", "WEBSITE_SEARCH", "ENQUIRY_NOT_AVAILABLE", "BUDGET_BAND",
+            "description: String",
         })
             Assert.Contains(field, sdl);
 

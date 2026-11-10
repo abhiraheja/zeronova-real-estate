@@ -164,6 +164,9 @@ public sealed class SetDealStageHandler(IDealRepository deals, IPropertyReposito
                 leadId ??= requirement.LeadId;
                 requirement.Status = RequirementStatus.Closed;
                 requirement.CloseReason = deal.Kind == PropertyPurpose.Sale ? $"Bought {property.Code} through us" : $"Rented {property.Code} through us";
+                requirement.CloseReasonCode = deal.Kind == PropertyPurpose.Sale ? RequirementCloseReason.BoughtThroughUs : RequirementCloseReason.RentedThroughUs;
+                requirement.ClosedAt = clock.GetUtcNow().UtcDateTime;
+                requirement.WatchUntil = null;
                 await requirements.UpdateAsync(requirement, ct);
                 await engine.ForRequirementAsync(requirement, ct);
             }

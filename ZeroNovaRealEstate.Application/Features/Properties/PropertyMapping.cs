@@ -72,7 +72,7 @@ public sealed class PropertyMapper(
         [.. p.History.Select(h => new Models.Deals.OwnershipRecordDto(h.FromNames, h.ToNames, h.Kind, h.Date, h.Note, h.DealId))],
         openMatches, p.CreatedBy?.ChangedDate,
         p.ProjectId, p.ProjectId is null ? null : p.Society, p.UnitTypeId, p.UnitTypeName, p.Tower, p.OwnPrice, p.HoldLeadId, p.HoldLeadName,
-        p.ShowOnWebsite, p.Featured, p.Slug);
+        p.ShowOnWebsite, p.Featured, p.Slug, p.Description);
 }
 
 /// <summary>A property input onto its document: cleaned, the other types' fields left out, sizes in sq ft, the title made.</summary>
@@ -170,6 +170,8 @@ public static class PropertyWriter
             .Select(x => new PhotoModel { Key = x.Key.Trim(), Url = x.Url.Trim() })];
         p.VideoUrl = EstateText.Clean(input.VideoUrl);
         p.Notes = input.Notes?.Trim() is { Length: > 0 } notes ? notes : null;
+        if (input.Description is not null)
+            p.Description = input.Description.Trim() is { Length: > 0 } description ? description : null;
         p.Custom = await CustomValuesAsync(input, fields, ct);
         if (input.ShowOnWebsite is { } show)
             p.ShowOnWebsite = show;

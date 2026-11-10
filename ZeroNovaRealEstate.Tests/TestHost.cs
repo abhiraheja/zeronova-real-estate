@@ -50,6 +50,9 @@ public sealed class TestHost : IAsyncDisposable
     /// <summary>The enquiries this service asked zeronova-lead to record (share page, "Add enquiry").</summary>
     public FakeCaptures Captures { get; } = new();
 
+    /// <summary>The WhatsApp templates this service asked zeronova-social to send (D33).</summary>
+    public FakeWhatsApp WhatsApp { get; } = new();
+
     /// <param name="encryptionKey">Null = Core's master key not set up.</param>
     public TestHost(MongoFixture mongo, string? encryptionKey = "default")
     {
@@ -76,6 +79,8 @@ public sealed class TestHost : IAsyncDisposable
         services.AddSingleton<IContactSyncProducer>(Contacts);
         services.RemoveAll<ILeadCaptureProducer>();
         services.AddSingleton<ILeadCaptureProducer>(Captures);
+        services.RemoveAll<IWhatsAppTemplateProducer>();
+        services.AddSingleton<IWhatsAppTemplateProducer>(WhatsApp);
         provider = services.BuildServiceProvider();
     }
 
@@ -165,6 +170,19 @@ public sealed class FakeCaptures : ILeadCaptureProducer
     public Task PublishAsync(LeadCapturedEnquiryEvent evt, string changedBy, CancellationToken ct = default)
     {
         Sent.Enqueue((evt, changedBy));
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> CancelScheduledAsync(string messageId, CancellationToken ct = default) => Task.FromResult(false);
+}
+
+public sealed class FakeWhatsApp : IWhatsAppTemplateProducer
+{
+    public ConcurrentQueue<WhatsAppFirstTouchRequestedEvent> Sent { get; } = new();
+
+    public Task PublishAsync(WhatsAppFirstTouchRequestedEvent evt, CancellationToken ct = default)
+    {
+        Sent.Enqueue(evt);
         return Task.CompletedTask;
     }
 

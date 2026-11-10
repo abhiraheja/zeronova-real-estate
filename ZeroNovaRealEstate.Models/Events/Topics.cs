@@ -33,7 +33,39 @@ public static class Topics
         /// <summary>The subscription (prefixed with <c>Messaging:Source</c>: <c>zeronova-real-estate.lead-enquiry-sub</c>).</summary>
         public const string EnquirySubscription = "lead-enquiry-sub";
     }
+
+    /// <summary>
+    /// zeronova-social's send requests: <c>whatsapp-first-touch-requested</c> sends the company's own approved template to a
+    /// number (D33's one-click message), from its default WhatsApp line. Social checks the line and the template at send time.
+    /// </summary>
+    public static class WhatsAppSends
+    {
+        public const string Topic = "whatsapp-sends";
+        public const string FirstTouchRequested = "whatsapp-first-touch-requested";
+    }
+
+    /// <summary>zeronova-social's WhatsApp events; this service reads <c>whatsapp-failed</c> for its own sends (key <c>re:…</c>).</summary>
+    public static class WhatsAppLifecycle
+    {
+        public const string Topic = "whatsapp-lifecycle";
+        public const string Failed = "whatsapp-failed";
+
+        /// <summary>The subscription (prefixed with <c>Messaging:Source</c>: <c>zeronova-real-estate.whatsapp-failed-sub</c>).</summary>
+        public const string FailedSubscription = "whatsapp-failed-sub";
+    }
 }
+
+/// <summary>
+/// zeronova-social's <c>WhatsAppFirstTouchRequestedEvent</c>; field names are the contract. <see cref="Parameters"/> fill
+/// the template's body <c>{{1}}…</c> in order. <see cref="IdempotencyKey"/> is claimed once (a redelivery sends nothing) and
+/// comes back on <c>whatsapp-sent</c> / <c>whatsapp-failed</c>; this service's keys start <c>re:</c>. No line given = the
+/// company's default WhatsApp line.
+/// </summary>
+public sealed record WhatsAppFirstTouchRequestedEvent(
+    string CompanyId, string IdempotencyKey, string To, string TemplateName, string? Language = null,
+    IReadOnlyList<string>? Parameters = null, IReadOnlyDictionary<string, string>? Variables = null,
+    string? PhoneNumberId = null, string? BusinessPhoneNumber = null, string? ContactName = null, string? RequestedBy = null,
+    string? LeadId = null);
 
 /// <summary>
 /// zeronova-lead's <c>LeadEnquiryCapturedNotification</c> (<c>lead-captured-enquiry</c>); field names are the contract.

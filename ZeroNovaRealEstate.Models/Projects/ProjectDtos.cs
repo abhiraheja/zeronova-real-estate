@@ -523,7 +523,11 @@ public sealed record ProjectSummaryDto(
     decimal? FromPrice,
     bool Stale,
     bool ShowOnWebsite = false,
-    bool Featured = false);
+    bool Featured = false)
+{
+    /// <summary>Enquiries on this project, its unit types and its units (D30) — as <see cref="ProjectDto.Enquiries"/>.</summary>
+    public ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto Enquiries { get; init; } = ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto.None;
+}
 
 /// <summary>A unit on the board (D20): its number, tower, floor, type, status (and the lead it is blocked for), price.</summary>
 public sealed record UnitDto(

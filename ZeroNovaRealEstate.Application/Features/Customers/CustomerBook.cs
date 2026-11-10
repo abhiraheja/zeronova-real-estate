@@ -334,7 +334,7 @@ public sealed class CustomerBook(
             Visits = rows.Visits.Count(v => Of(v.AgentId)),
             Deals = rows.Deals.Count(d => Of(d.AgentId)),
             Tenancies = rows.Tenancies.Count(t => Of(t.AgentId)),
-            Unmet = rows.Requirements.Count(r => Of(r.AgentId) && CustomerRules.IsUnmet(r)) + rows.Enquiries.Count(e => Of(e.AgentId) && CustomerRules.IsUnmet(e)),
+            Unmet = rows.Requirements.Count(r => Of(r.AgentId) && CustomerRules.IsUnmet(r)) + rows.Enquiries.Count(e => Of(e.AgentId) && CustomerRules.IsUnmet(e, rows.Requirements)),
             LastActivityAt = touches.Where(t => Of(t.AgentId)).Select(t => t.At).FirstOrDefault(),
         };
     }
@@ -344,19 +344,28 @@ public sealed class CustomerBook(
     private static DateTime Max(DateTime a, DateTime b) => a > b ? a : b;
 }
 
-/// <summary>What counts as open and as unmet demand (D32; C3 adds watching).</summary>
+/// <summary>What counts as open and as unmet demand (D32, C3).</summary>
 public static partial class CustomerRules
 {
     public static bool IsOpen(RequirementDocument r) => r.Status is RequirementStatus.Active or RequirementStatus.OnHold;
 
     /// <summary>
-    /// A requirement lost, or closed as not available (its close reason says so — there is no reason list for requirements
-    /// yet); a requirement closed by a deal is met.
+    /// A requirement watched (D33), lost, or closed as not available — by its reason code (C3), or, on a row closed before C3
+    /// (no code), by its note saying so ("not available", "nahi mila"); one closed by a deal is met.
     /// </summary>
     public static bool IsUnmet(RequirementDocument r) =>
-        r.Status == RequirementStatus.Lost || (r.Status == RequirementStatus.Closed && r.CloseReason is { } reason && NotAvailable().IsMatch(reason));
+        r.Status is RequirementStatus.Watching or RequirementStatus.Lost || (r.Status == RequirementStatus.Closed && IsNotAvailable(r));
 
-    public static bool IsUnmet(EnquiryDocument e) => e.Status == EnquiryStatus.Closed && e.CloseReason == EnquiryCloseReason.NotAvailable;
+    /// <summary>Closed as not available: the code, or — a row from before C3 with no code — the note's words.</summary>
+    public static bool IsNotAvailable(RequirementDocument r) =>
+        r.CloseReasonCode == RequirementCloseReason.NotAvailable || (r.CloseReasonCode is null && r.CloseReason is { } reason && NotAvailable().IsMatch(reason));
+
+    /// <summary>
+    /// An enquiry closed as not available — unless it made a watched requirement (D33): then the need is that requirement's,
+    /// counted once.
+    /// </summary>
+    public static bool IsUnmet(EnquiryDocument e, IEnumerable<RequirementDocument> requirements) =>
+        e.Status == EnquiryStatus.Closed && e.CloseReason == EnquiryCloseReason.NotAvailable && !requirements.Any(r => r.EnquiryId == e.Id);
 
     /// <summary>"3 BHK flat for sale · Sector 70 / Sector 71, Mohali · ₹80,00,000 – ₹1,00,00,000 · 1,500 sq ft or more".</summary>
     public static string Summary(RequirementDocument r)

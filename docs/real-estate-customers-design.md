@@ -1,6 +1,6 @@
 # Real Estate — enquiries, customers, unmet demand, video and agreement fixes (section 8)
 
-**Status:** design, 2026-11-10. Continues `real-estate-design.md` (D1–D26) with D27–D40. **C1 built 2026-11-10
+**Status:** design, 2026-11-10. Continues `real-estate-design.md` (D1–D26) with D27–D40. C1, C2 and C3 are built (backend), each with its notes below. **C1 built 2026-11-10
 (backend; the app's Enquiries screen is not):** `re_enquiries` from zeronova-lead's `lead-enquiry-received`
 (subscription `zeronova-real-estate.lead-enquiry-sub` on `lead-lifecycle`), the share page's `ZeroNova_enquireEstateShare`,
 staff `ZeroNova_addEstateEnquiry` (+ `ZeroNova_estateEnquiryByRef` to poll), `ZeroNova_updateEstateEnquiry`,
@@ -84,6 +84,90 @@ Estate never calls zeronova-lead for it and copies nothing of the CRM. How C2 wo
   saying not available** ("not available", "nahi mila") — requirements have no close-reason list yet, so the free text is
   read; one closed by a deal is met — with their criteria in words, and enquiries **closed as not available** with
   `wanted`. C3 adds the watched status and revival.
+
+**C3 built 2026-11-10 (backend; the app's screens are not):** close reason codes, watched requirements, revived matches,
+the one-click message and the unmet-demand report. GraphQL: `RequirementStatus.WATCHING`; `RequirementCloseReason`
+(BoughtThroughUs, RentedThroughUs, BoughtElsewhere, RentedElsewhere, NotAvailable, NotInterested, Unreachable,
+BudgetMismatch, Other); `CloseRequirementInput.reasonCode` (the old `reason` is the note); on `RequirementDto`
+`closeReasonCode`, `closedAt`, `watchUntil`, `enquiryId`; on `MatchDto` `revived`, `messageVia`, `messagedAt`,
+`messageFailed`; `ZeroNova_sendEstateMatchMessage(matchId)` (PRQM own / PRQV) → `MatchMessageDto {sent, via, draftUrl,
+shareUrl, text, phone, match}`; `ZeroNova_estateDemandReport(from, to, groupBy, unmatchedDays)` (PRQV); settings
+`watchDays` (default 90), `matchTemplateName`, `matchTemplateLanguage` (null keeps on save); `CustomerUnmetDto`
+`requirementCloseReason`, `watchUntil`; `enquiries` on `ProjectSummaryDto`. How it works, and what differs:
+
+- **Close reasons.** A close carries a code beside the free-text note. A close **without a code is `Other`** (a lost one
+  keeps none): the C2 reading of the note ("not available", "nahi mila") is kept **only for rows closed before C3**
+  (no code), in the customer's unmet demand and the report. A completed deal closes its requirement BoughtThroughUs /
+  RentedThroughUs.
+- **Watching (D33).** Closing or losing as NotAvailable — or asking for `WATCHING` — sets status `Watching` until now +
+  `watchDays` (1–365). Watching is matched both ways, unit types too (D24); it is not "open" in the customer counts but
+  is unmet demand. Reopening to Active clears code, note and dates. The **watch sweep** (`WatchExpiryJob`, at start and
+  then daily, across companies through `WatchesEndedAsync`) closes ended watches: status Closed, code and note kept,
+  still-new (revived) matches dropped.
+- **An enquiry closed NotAvailable** with a lead and no requirement of its own makes a watched requirement of that lead
+  (contact, name, phone, the enquiry's agent, `enquiryId`), linked as the enquiry's `requirementId` (the enquiry stays
+  closed). Criteria: the listing (property: purpose, type, locality, BHK, its price as the budget top; project: locality,
+  the unit type's type and BHK), then the form's extra fields (budget / price, bhk / bedrooms, purpose / looking, *type*,
+  locality / location / sector / area, city), then the words of `wanted` ("3 BHK", "50-80 lakh", "1.2 cr", "rent",
+  "kothi", "sector 70"); default purpose Sale and the dealer's city. Closing it again re-watches the same requirement. An
+  enquiry already linked to a requirement made while working it leaves that requirement to the agent. **Counted once:**
+  an enquiry that made a watched requirement is unmet only as that requirement (dashboard, list count, report).
+- **Revived.** A new match on a Watching requirement is `revived`; the agent gets a bell of its own
+  (`ESTATE_REVIVED_MATCH`: "<customer> asked for this earlier — now available", body the property or "<type> in
+  <project>", one per requirement, apart from the ordinary new-match bells). **Highlighted** = a new match on an active
+  requirement in the last 7 days, **or** a revived new match on a watching requirement however old — until it is shown or
+  rejected, or the watch ends. Shown / interested / rejected stay history and are never offered again (unchanged).
+- **One-click message.** A fresh share link for the match's requirement (the property's `/p/`, or for a unit-type match
+  the project's `/pj/` — an own project still needs its RERA number), which also marks the match shown (the existing share
+  handlers). Then, when the dealer set `matchTemplateName` and the customer has a phone, **zeronova-social's existing
+  `whatsapp-first-touch-requested`** on topic `whatsapp-sends` (the server-to-server send of a company's own approved
+  template that zeronova-office's first touch uses), through the outbox: `To` = the requirement's phone, `TemplateName` /
+  `Language` from settings, `Parameters` = [customer name, property title, price, share link], `ContactName`,
+  `RequestedBy` = the caller, `LeadId`, no line (social uses the company's default WhatsApp line), `IdempotencyKey`
+  `re:{companyId}:m:{matchId}:{shareId}`. Else the M2 wa.me draft (`Drafts.WaLink`). **Deviation:** the service cannot
+  ask social whether WhatsApp is connected or the template approved (social's GraphQL needs a signed-in WAPV user; there is
+  no machine identity), so "template available" is the dealer's setting — the app checks social
+  (`ZeroNova_whatsAppTemplates`, status APPROVED) before saving it — and social checks the line and the template at send
+  time. A refusal comes back on `whatsapp-failed` (new subscription `zeronova-real-estate.whatsapp-failed-sub` on
+  `whatsapp-lifecycle`, filter `event_type = "whatsapp-failed"`; only `re:` keys are read): the reason goes on the match
+  (`messageFailed`: not_connected, template_not_approved, blocked, rate_limited, …) and the agent gets one
+  `ESTATE_MESSAGE_FAILED` bell to send it from their phone; the match stays shown. `sent = true` means handed to social,
+  not delivered. Social's per-company first-touch budget (60 an hour, 300 a day, shared with the office) applies.
+- **Demand report (D34).** As they stand now: (a) watching requirements, (b) active requirements with **no match at
+  all** made `unmatchedDays` (default 14) or more ago. In the window (India days, default the last 90, at most 400): (c)
+  requirements closed not available (code, or an old row's note; by `closedAt`, else the last change), (d) enquiries closed
+  not available that made no watched requirement, (e) website searches with no result. Grouped within each purpose (sale
+  and rent never mix; a search without one is its own) by any of Locality, Type, Bhk, BudgetBand (default all four); a
+  row counts in every group its criteria fall in (two localities = two groups), "Any" where it did not say. Bands: sale
+  Up to 25L, 25L-50L, 50L-1Cr, 1Cr-2Cr, 2Cr-5Cr, Above 5Cr; rent Up to 10k, 10k-25k, 25k-50k, 50k-1L, Above 1L (by the
+  budget's top, else its bottom). Each group: total, counts per source, up to 5 sample customers (a–d only: id, code,
+  name, lead, contact, agent, what). PRQV at the API; the handler still scopes requirements and enquiries to the caller's
+  own without PRQV. At most 300 groups, biggest first.
+- **E2's empty-search log.** `ZeroNova_estateWebsiteProperties` returning nothing on page 1 adds one to
+  `re_demand_signals` (company, India day, criteria: purpose, types, city, locality — a slug's dashes read as spaces —,
+  budget band, BHK; unique per company + day + criteria key, `$inc`). No IP, user agent, free text (it may hold a name or
+  a number) or anything else; a search with none of those criteria is not kept; a failure never fails the search.
+- **Website ids and a public description (asked by the CMS session):** `id` on `EstateWebsitePropertyDto`,
+  `EstateWebsiteProjectSummaryDto` and `EstateWebsiteProjectDto`; a public `description` on properties (`PropertyInput` /
+  `PropertyDto`, up to 2,000 characters, null keeps, empty clears) shown on `ZeroNova_estateSharedProperty` and the
+  website; the notes stay private. Units take the project's overview (no description).
+
+**The WhatsApp template the dealer creates** (in the app's WhatsApp templates — zeronova-social
+`ZeroNova_createWhatsAppTemplate`, WAPM; Meta, or MSG91, reviews it; nothing in Real Estate calls Meta). Name
+`zeronova_estate_now_available`, category UTILITY (MARKETING if Meta re-categorises it), one language per template —
+create the English one (`en`) and/or the Hindi one (`hi`) and put the approved name and language in Real Estate
+settings. Four body variables in this order; Meta does not allow a variable at the very start or end of the body, hence
+the last sentence. Example values for review: Rahul / 3 BHK Flat in Sector 70 / ₹95,00,000 /
+https://app.zeronova.in/p/abc123.
+
+- English (`en`): "Namaste {{1}}, you had asked us for a property like this, and it is available now: {{2}} at {{3}}.
+  See the photos and details here: {{4}} . Reply to this message to book a visit."
+- Hindi (`hi`): "नमस्ते {{1}}, आपने हमसे ऐसी प्रॉपर्टी के बारे में पूछा था, वह अब उपलब्ध है: {{2}}, कीमत {{3}}।
+  फ़ोटो और पूरी जानकारी यहाँ देखें: {{4}} । विज़िट बुक करने के लिए इस मैसेज का जवाब दें।"
+
+The dealer approves it by submitting it from the app (social sends it to Meta / MSG91), waits for status APPROVED in the
+templates list (webhooks, or the 10-minute MSG91 sync), then sets `matchTemplateName` / `matchTemplateLanguage` in Real
+Estate settings. Until then the one-click message is the wa.me draft.
 
 **Why:** the owner (2026-11-10): every listing is managed in the Real Estate app; each property and project shows how
 many enquiries it got; an Enquiries screen shows them day, week and month wise; a **customer** has a dashboard like a

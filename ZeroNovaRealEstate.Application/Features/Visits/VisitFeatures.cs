@@ -365,7 +365,7 @@ public sealed class GetSharedPropertyHandler(IShareRepository shares, IPropertyR
         return new SharedPropertyDto(p.Title, p.Purpose, p.Type, p.City, p.Locality, p.Society, AreaMath.Dto(p.PlotArea), AreaMath.Dto(p.BuiltUpArea),
             AreaMath.Dto(p.CarpetArea), AreaMath.Dto(p.SuperArea), onRequest ? null : p.Price, p.Negotiable, p.Rent, p.Deposit, p.Bhk, p.Bathrooms, p.Floor, p.TotalFloors,
             p.Furnishing, p.Facing, p.Corner, p.ParkFacing, p.Amenities, [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], p.VideoUrl,
-            s.DealerName, s.DealerPhone, s.ReraNumber, !p.IsDeleted && p.Status is PropertyStatus.Available or PropertyStatus.OnHold);
+            s.DealerName, s.DealerPhone, s.ReraNumber, !p.IsDeleted && p.Status is PropertyStatus.Available or PropertyStatus.OnHold, p.Description);
     }
 }
 

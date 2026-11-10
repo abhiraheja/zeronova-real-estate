@@ -262,7 +262,12 @@ public sealed class PropertyInput
     // ── Media and notes
     public IReadOnlyList<PhotoInput>? Photos { get; init; }
     public string? VideoUrl { get; init; }
+
+    /// <summary>The dealer's own notes — private, never on a share page or the website.</summary>
     public string? Notes { get; init; }
+
+    /// <summary>The public description (share pages, the website), up to 2,000 characters. Null keeps it; empty clears it.</summary>
+    public string? Description { get; init; }
 
     /// <summary>The dealer's own fields (D4): key → value as text.</summary>
     public IReadOnlyList<CustomValueInput>? Custom { get; init; }
@@ -400,7 +405,8 @@ public sealed record PropertyDto(
     string? HoldLeadName = null,
     bool ShowOnWebsite = false,
     bool Featured = false,
-    string? WebsiteSlug = null)
+    string? WebsiteSlug = null,
+    string? Description = null)
 {
     /// <summary>Enquiries on this property (D30).</summary>
     public ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto Enquiries { get; init; } = ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto.None;

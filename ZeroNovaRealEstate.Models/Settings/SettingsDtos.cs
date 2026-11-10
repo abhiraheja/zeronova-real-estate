@@ -6,7 +6,8 @@ namespace ZeroNovaRealEstate.Models.Settings;
 /// <summary>
 /// The dealer's settings (design 4.2): the local size of the regional units, how far over budget to match, when a
 /// property goes stale, the match threshold, the default city, the RERA number, and the name and phone customers see on
-/// a shared property.
+/// a shared property. C3: how long unmet demand is watched, and the WhatsApp template the one-click message uses (none =
+/// a wa.me draft).
 /// </summary>
 public sealed record EstateSettingsDto(
     decimal MarlaSqFt,
@@ -26,8 +27,17 @@ public sealed record EstateSettingsDto(
     string? Gstin,
     string? DealerAddress,
     decimal SaleBrokeragePercent,
-    decimal RentBrokerageMonths);
+    decimal RentBrokerageMonths,
+    int WatchDays = 90,
+    string? MatchTemplateName = null,
+    string? MatchTemplateLanguage = null);
 
+/// <summary>
+/// The settings to save. The C3 fields keep the stored value when null (an app that does not know them yet changes
+/// nothing): <see cref="WatchDays"/> — how long a requirement closed as not available is watched (D33, 1–365, default 90);
+/// <see cref="MatchTemplateName"/> — the company's approved WhatsApp template (in zeronova-social) for "property now
+/// available", empty to stop using one; <see cref="MatchTemplateLanguage"/> — its language code (<c>en</c>, <c>hi</c>).
+/// </summary>
 public sealed record EstateSettingsInput(
     decimal MarlaSqFt,
     decimal KanalSqFt,
@@ -46,7 +56,10 @@ public sealed record EstateSettingsInput(
     string? Gstin = null,
     string? DealerAddress = null,
     decimal SaleBrokeragePercent = 1m,
-    decimal RentBrokerageMonths = 1m);
+    decimal RentBrokerageMonths = 1m,
+    int? WatchDays = null,
+    string? MatchTemplateName = null,
+    string? MatchTemplateLanguage = null);
 
 public enum CustomFieldKind
 {

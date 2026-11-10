@@ -8,6 +8,29 @@ public enum RequirementStatus
     OnHold,
     Closed,
     Lost,
+
+    /// <summary>
+    /// Closed as not available and watched until <see cref="RequirementDto.WatchUntil"/> (D33): still matched, and a new fit
+    /// is a revived match. The daily sweep closes it when the date passes; it can be reopened to active.
+    /// </summary>
+    Watching,
+}
+
+/// <summary>
+/// Why a requirement was closed (C3). <see cref="NotAvailable"/> watches it (D33). The free-text reason stays beside it as a
+/// note. A row closed before C3 has none (its note is read the old way: "not available" / "nahi mila").
+/// </summary>
+public enum RequirementCloseReason
+{
+    BoughtThroughUs,
+    RentedThroughUs,
+    BoughtElsewhere,
+    RentedElsewhere,
+    NotAvailable,
+    NotInterested,
+    Unreachable,
+    BudgetMismatch,
+    Other,
 }
 
 public enum FloorPreference
@@ -96,9 +119,19 @@ public sealed record RequirementDto(
     string? Notes,
     int NewMatches,
     DateTimeOffset? CreatedAt,
-    string? ContactId = null);
+    string? ContactId = null,
+    RequirementCloseReason? CloseReasonCode = null,
+    DateTimeOffset? ClosedAt = null,
+    DateTimeOffset? WatchUntil = null,
+    string? EnquiryId = null);
 
-public sealed record CloseRequirementInput(RequirementStatus Status, string? Reason);
+/// <summary>
+/// Close (with <see cref="ReasonCode"/>), lose, pause, watch or reopen a requirement. <see cref="Reason"/> is the free-text
+/// note. Closing (or losing) as <see cref="RequirementCloseReason.NotAvailable"/> — or asking for
+/// <see cref="RequirementStatus.Watching"/> — watches it for the dealer's watch days (D33). A close without a code is read as
+/// before: a note saying not available ("not available", "nahi mila") is NotAvailable, anything else Other.
+/// </summary>
+public sealed record CloseRequirementInput(RequirementStatus Status, string? Reason, RequirementCloseReason? ReasonCode = null);
 
 public enum MatchStatus
 {
@@ -112,7 +145,8 @@ public enum MatchStatus
 /// A property that fits a requirement (D10), with its score (0–100) and why. Once shown or rejected it is never offered
 /// again; <see cref="PriceWhenMatched"/> lets a later price drop be told apart. A match to a project's unit type (D24)
 /// carries the project and type and points at the best available unit; <see cref="AvailableInGroup"/> is how many
-/// available units of the type fit.
+/// available units of the type fit. <see cref="Revived"/>: made while the requirement was watched (D33) — the customer asked
+/// for this earlier and it is available now.
 /// </summary>
 public sealed record MatchDto(
     string Id,
@@ -136,6 +170,25 @@ public sealed record MatchDto(
     string? ProjectName = null,
     string? UnitTypeId = null,
     string? UnitTypeName = null,
-    int? AvailableInGroup = null);
+    int? AvailableInGroup = null,
+    bool Revived = false,
+    MatchMessageVia? MessageVia = null,
+    DateTimeOffset? MessagedAt = null,
+    string? MessageFailed = null);
+
+/// <summary>How the customer was told of a match (D33): the company's WhatsApp template, or a wa.me draft the agent opened.</summary>
+public enum MatchMessageVia
+{
+    WhatsAppTemplate,
+    Draft,
+}
+
+/// <summary>
+/// The one-click "now available" message (D33). <see cref="Sent"/>: handed to zeronova-social with the company's approved
+/// template (<see cref="MatchDto.MessageFailed"/> says later if WhatsApp refused it). Otherwise <see cref="DraftUrl"/> is
+/// the ready wa.me message for the app to open (null when the customer has no phone). The share link is fresh either way,
+/// and the match is now shown.
+/// </summary>
+public sealed record MatchMessageDto(bool Sent, MatchMessageVia Via, string? DraftUrl, string ShareUrl, string Text, string? Phone, MatchDto Match);
 
 public sealed record MatchUpdateInput(MatchStatus Status, string? RejectReason);

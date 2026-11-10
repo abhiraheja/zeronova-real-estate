@@ -104,19 +104,34 @@ public sealed class SaveRequirementHandler(
     }
 }
 
-/// <summary>Closes (bought or rented — through the dealer or elsewhere), loses, pauses or reopens a requirement.</summary>
+/// <summary>
+/// Closes (bought or rented — through the dealer or elsewhere, not available, …), loses, pauses, watches or reopens a
+/// requirement (C3). Not available watches it (D33): still matched, a new fit revived, until the dealer's watch days pass.
+/// </summary>
 public sealed record CloseRequirementCommand(string RequirementId, CloseRequirementInput Input) : IRequest<RequirementDto>;
 
+public sealed class CloseRequirementValidator : AbstractValidator<CloseRequirementCommand>
+{
+    public CloseRequirementValidator()
+    {
+        RuleFor(x => x.Input.ReasonCode).Null().When(x => x.Input.Status is RequirementStatus.Active or RequirementStatus.OnHold)
+            .WithMessage("A close reason goes with closing the requirement.");
+        RuleFor(x => x.Input.ReasonCode).Must(c => c is null or RequirementCloseReason.NotAvailable).When(x => x.Input.Status == RequirementStatus.Watching)
+            .WithMessage("Only a requirement closed as not available is watched.");
+        RuleFor(x => x.Input.Reason).MaximumLength(1000);
+    }
+}
+
 public sealed class CloseRequirementHandler(IRequirementRepository requirements, IMatchRepository matches, MatchEngine engine, EstateScope scope,
-    Customers.CustomerBook customers)
+    IEstateSettingsRepository settings, TimeProvider clock, Customers.CustomerBook customers)
     : IRequestHandler<CloseRequirementCommand, RequirementDto>
 {
     public async Task<RequirementDto> Handle(CloseRequirementCommand request, CancellationToken ct)
     {
         var requirement = await RequirementLookup.RequireAsync(requirements, request.RequirementId, ct);
         scope.RequireWork(requirement);
-        requirement.Status = request.Input.Status;
-        requirement.CloseReason = request.Input.Status is RequirementStatus.Closed or RequirementStatus.Lost ? EstateText.Clean(request.Input.Reason) : null;
+        var s = await EstateSettings.LoadAsync(settings, ct);
+        RequirementClosing.Apply(requirement, request.Input.Status, request.Input.ReasonCode, request.Input.Reason, s, clock.GetUtcNow().UtcDateTime);
         await requirements.UpdateAsync(requirement, ct);
         await engine.ForRequirementAsync(requirement, ct);
         await customers.TouchAsync(requirement.ContactId, [requirement.LeadId], ct);
@@ -184,6 +199,8 @@ public static class RequirementMapping
         return [.. rows.Select(r => new RequirementDto(r.Id, r.LeadId, r.LeadName, r.LeadPhone, r.AgentId, r.Status, r.CloseReason, r.Purpose, r.Types,
             r.City, r.Localities, r.BudgetMin, r.BudgetMax, AreaMath.Dto(r.SizeMin), AreaMath.Dto(r.SizeMax), r.Bhk, r.Facings, r.CornerOnly,
             r.ParkFacingOnly, r.Floor, r.NeedsLift, r.NeedsParking, r.Furnishings, r.TenantType, r.NeededBy, r.Notes,
-            counts.GetValueOrDefault(r.Id), r.CreatedBy?.ChangedDate, r.ContactId))];
+            counts.GetValueOrDefault(r.Id), r.CreatedBy?.ChangedDate, r.ContactId, r.CloseReasonCode, Utc(r.ClosedAt), Utc(r.WatchUntil), r.EnquiryId))];
     }
+
+    private static DateTimeOffset? Utc(DateTime? at) => at is { } t ? new DateTimeOffset(DateTime.SpecifyKind(t, DateTimeKind.Utc)) : null;
 }
