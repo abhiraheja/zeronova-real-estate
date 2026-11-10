@@ -53,8 +53,12 @@ public sealed class TestHost : IAsyncDisposable
     /// <summary>The WhatsApp templates this service asked zeronova-social to send (D33).</summary>
     public FakeWhatsApp WhatsApp { get; } = new();
 
+    /// <summary>zeronova-media, as this service calls it for property and project videos.</summary>
+    public FakeMedia Media { get; } = new();
+
     /// <param name="encryptionKey">Null = Core's master key not set up.</param>
-    public TestHost(MongoFixture mongo, string? encryptionKey = "default")
+    /// <param name="realMedia">The real zeronova-media client with no address or key (video not set up) instead of <see cref="Media"/>.</param>
+    public TestHost(MongoFixture mongo, string? encryptionKey = "default", bool realMedia = false)
     {
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
@@ -81,6 +85,11 @@ public sealed class TestHost : IAsyncDisposable
         services.AddSingleton<ILeadCaptureProducer>(Captures);
         services.RemoveAll<IWhatsAppTemplateProducer>();
         services.AddSingleton<IWhatsAppTemplateProducer>(WhatsApp);
+        if (!realMedia)
+        {
+            services.RemoveAll<IMediaClient>();
+            services.AddSingleton<IMediaClient>(Media);
+        }
         provider = services.BuildServiceProvider();
     }
 
@@ -200,4 +209,85 @@ public sealed class FakeBells : IAgentNotificationProducer
     }
 
     public Task<bool> CancelScheduledAsync(string messageId, CancellationToken ct = default) => Task.FromResult(false);
+}
+
+/// <summary>zeronova-media in memory: videos by id, and every create, part request, completion, grant and delete asked for.</summary>
+public sealed class FakeMedia : IMediaClient
+{
+    public ConcurrentDictionary<string, MediaVideo> Videos { get; } = new();
+    public ConcurrentQueue<(string Company, string Title, string ExternalRef, long Size, string ContentType, int MaxDuration)> Created { get; } = new();
+    public ConcurrentQueue<(string Company, string VideoId, int Parts)> Completed { get; } = new();
+    public ConcurrentQueue<(string Company, string VideoId, string Viewer, int Ttl)> Grants { get; } = new();
+    public ConcurrentQueue<(string Company, string VideoId)> Deleted { get; } = new();
+    public ConcurrentQueue<(string Company, string VideoId)> Aborted { get; } = new();
+    public ConcurrentQueue<(string Company, string VideoId, string Title)> Renamed { get; } = new();
+
+    /// <summary>Set to make every delete fail (best-effort deletes must not fail the caller).</summary>
+    public bool FailDeletes { get; set; }
+
+    public bool IsConfigured { get; set; } = true;
+
+    private int next;
+
+    public Task<MediaUpload> CreateVideoAsync(string companyId, string title, string externalRef, string fileName, long sizeBytes, string contentType,
+        int maxDurationSeconds, CancellationToken ct = default)
+    {
+        var id = "vid" + Interlocked.Increment(ref next).ToString("D3");
+        Videos[id] = new MediaVideo(id, "Uploading", null, null, null);
+        Created.Enqueue((companyId, title, externalRef, sizeBytes, contentType, maxDurationSeconds));
+        var count = (int)Math.Max(1, (sizeBytes + (16L << 20) - 1) / (16L << 20));
+        return Task.FromResult(Upload(id, Enumerable.Range(1, Math.Min(count, 50)), count));
+    }
+
+    public Task<MediaUpload> PartUrlsAsync(string companyId, string videoId, IReadOnlyList<int> numbers, CancellationToken ct = default) =>
+        Task.FromResult(Upload(videoId, numbers, numbers.Max()));
+
+    public Task<MediaVideo> CompleteUploadAsync(string companyId, string videoId, IReadOnlyList<(int Number, string ETag)> parts, CancellationToken ct = default)
+    {
+        if (!Videos.TryGetValue(videoId, out var video) || video.Status != "Uploading")
+            throw new MediaRefusedException("The video is not being uploaded.");
+        Completed.Enqueue((companyId, videoId, parts.Count));
+        return Task.FromResult(Videos[videoId] = video with { Status = "Processing" });
+    }
+
+    public Task AbortUploadAsync(string companyId, string videoId, CancellationToken ct = default)
+    {
+        Aborted.Enqueue((companyId, videoId));
+        Videos.TryRemove(videoId, out _);
+        return Task.CompletedTask;
+    }
+
+    public Task<IReadOnlyList<MediaVideo>> GetVideosAsync(string companyId, IReadOnlyCollection<string> videoIds, CancellationToken ct = default) =>
+        Task.FromResult<IReadOnlyList<MediaVideo>>([.. videoIds.Select(id => Videos.GetValueOrDefault(id)).OfType<MediaVideo>()]);
+
+    public Task RenameAsync(string companyId, string videoId, string title, CancellationToken ct = default)
+    {
+        Renamed.Enqueue((companyId, videoId, title));
+        return Task.CompletedTask;
+    }
+
+    public Task DeleteVideoAsync(string companyId, string videoId, CancellationToken ct = default)
+    {
+        if (FailDeletes)
+            throw new HttpRequestException("zeronova-media is down");
+        Deleted.Enqueue((companyId, videoId));
+        Videos.TryRemove(videoId, out _);
+        return Task.CompletedTask;
+    }
+
+    public Task<MediaGrant> GrantAsync(string companyId, string videoId, string viewerRef, int ttlSeconds, CancellationToken ct = default)
+    {
+        if (!Videos.TryGetValue(videoId, out var video) || video.Status != "Ready")
+            throw new MediaRefusedException("The video is not ready.");
+        Grants.Enqueue((companyId, videoId, viewerRef, ttlSeconds));
+        return Task.FromResult(new MediaGrant($"https://media.test/media/v1/play/{videoId}/master.m3u8?t=ticket", video.PosterUrl, video.DurationSeconds,
+            DateTimeOffset.UtcNow.AddSeconds(ttlSeconds)));
+    }
+
+    /// <summary>As the encoder would: the video ready (or failed) in media.</summary>
+    public void Finish(string videoId, string status = "Ready", double? duration = 95, string? reason = null) =>
+        Videos[videoId] = new MediaVideo(videoId, status, reason, duration, status == "Ready" ? $"https://video.test/{videoId}/poster.jpg" : null);
+
+    private static MediaUpload Upload(string id, IEnumerable<int> numbers, int count) =>
+        new(id, 16L << 20, count, [.. numbers.Select(n => (n, $"https://r2.test/{id}/part{n}?sig=x"))], DateTimeOffset.UtcNow.AddHours(6));
 }

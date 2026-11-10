@@ -232,6 +232,17 @@ public static class WebsiteListings
         p.AvailableFrom, p.TenantPreferences, p.PetsAllowed, [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], p.VideoUrl, p.Description);
 }
 
+/// <summary>Listed properties with their ready videos (D36): one query for the page.</summary>
+internal static class WebsiteVideos
+{
+    public static async Task<IReadOnlyList<EstateWebsitePropertyDto>> MapAsync(IReadOnlyList<PropertyDocument> rows, Videos.EstateVideoBook videos, string company,
+        CancellationToken ct)
+    {
+        var ready = await videos.OfAsync(Models.Videos.EstateListingKind.Property, [.. rows.Select(p => p.Id)], true, company, ct);
+        return [.. rows.Select(p => WebsiteListings.Map(p) with { Videos = [.. ready[p.Id].Select(Videos.EstateVideoBook.Public)] })];
+    }
+}
+
 /// <summary>The website with this code, when it is on — else "not available", the same for a wrong code and a website turned off.</summary>
 internal static class WebsiteLookup
 {
@@ -277,7 +288,7 @@ public sealed record GetEstateWebsitePropertiesQuery(string Code, EstateWebsiteP
     : IRequest<EstateWebsitePropertyPageDto>;
 
 public sealed class GetEstateWebsitePropertiesHandler(IWebsiteRepository websites, IPropertyRepository properties, IEstateSettingsRepository settings,
-    TimeProvider clock, Requirements.DemandSignals demand)
+    TimeProvider clock, Requirements.DemandSignals demand, Videos.EstateVideoBook videos)
     : IRequestHandler<GetEstateWebsitePropertiesQuery, EstateWebsitePropertyPageDto>
 {
     public async Task<EstateWebsitePropertyPageDto> Handle(GetEstateWebsitePropertiesQuery request, CancellationToken ct)
@@ -379,7 +390,7 @@ public sealed class GetEstateWebsitePropertiesHandler(IWebsiteRepository website
             _ => query.OrderByDescending(p => p.Featured).ThenByDescending(p => p.Id),
         };
         var rows = await query.Skip((page - 1) * size).Take(size).ToListAsync(ct);
-        return new EstateWebsitePropertyPageDto(total, page, size, [.. rows.Select(WebsiteListings.Map)]);
+        return new EstateWebsitePropertyPageDto(total, page, size, await WebsiteVideos.MapAsync(rows, videos, company, ct));
     }
 }
 
@@ -390,7 +401,7 @@ public sealed class GetEstateWebsitePropertiesHandler(IWebsiteRepository website
 public sealed record GetEstateWebsitePropertyQuery(string Code, string Slug) : IRequest<EstateWebsitePropertyResultDto>;
 
 public sealed class GetEstateWebsitePropertyHandler(IWebsiteRepository websites, IPropertyRepository properties, IEstateSettingsRepository settings,
-    TimeProvider clock)
+    TimeProvider clock, Videos.EstateVideoBook videos)
     : IRequestHandler<GetEstateWebsitePropertyQuery, EstateWebsitePropertyResultDto>
 {
     private const int SimilarCount = 4;
@@ -409,7 +420,7 @@ public sealed class GetEstateWebsitePropertyHandler(IWebsiteRepository websites,
         var fresh = await WebsiteFreshness.LoadAsync(settings, company, clock, ct);
         var similar = await SimilarAsync(p, company, fresh, ct);
         return WebsiteListings.IsListed(p, fresh)
-            ? new EstateWebsitePropertyResultDto(EstateWebsiteListingState.Listed, p.Title, WebsiteListings.Map(p), similar)
+            ? new EstateWebsitePropertyResultDto(EstateWebsiteListingState.Listed, p.Title, (await WebsiteVideos.MapAsync([p], videos, company, ct))[0], similar)
             : new EstateWebsitePropertyResultDto(EstateWebsiteListingState.NoLongerAvailable, p.ShowOnWebsite ? p.Title : null, null, similar);
     }
 
@@ -424,11 +435,11 @@ public sealed class GetEstateWebsitePropertyHandler(IWebsiteRepository websites,
         var rows = await candidates.Where(x => x.Type == type).OrderByDescending(x => x.Id).Take(60).ToListAsync(ct);
         if (rows.Count < SimilarCount)
             rows.AddRange(await candidates.Where(x => x.Type != type).OrderByDescending(x => x.Id).Take(60).ToListAsync(ct));
-        return [.. rows
+        return await WebsiteVideos.MapAsync([.. rows
             .OrderBy(x => x.Type == type ? 0 : 1)
             .ThenBy(x => x.LocalityKey == p.LocalityKey ? 0 : 1)
             .ThenBy(x => x.PriceValue is { } v && p.PriceValue is { } mine ? Math.Abs(v - mine) : decimal.MaxValue)
-            .Take(SimilarCount).Select(WebsiteListings.Map)];
+            .Take(SimilarCount)], videos, company, ct);
     }
 }
 
@@ -460,7 +471,8 @@ public sealed class GetEstateWebsiteProjectsHandler(IWebsiteRepository websites,
 public sealed record GetEstateWebsiteProjectQuery(string Code, string Slug) : IRequest<EstateWebsiteProjectDto?>;
 
 public sealed class GetEstateWebsiteProjectHandler(
-    IWebsiteRepository websites, IProjectRepository projects, IUnitTypeRepository unitTypes, IPropertyRepository properties, IPaymentPlanRepository plans)
+    IWebsiteRepository websites, IProjectRepository projects, IUnitTypeRepository unitTypes, IPropertyRepository properties, IPaymentPlanRepository plans,
+    Videos.EstateVideoBook videos)
     : IRequestHandler<GetEstateWebsiteProjectQuery, EstateWebsiteProjectDto?>
 {
     public async Task<EstateWebsiteProjectDto?> Handle(GetEstateWebsiteProjectQuery request, CancellationToken ct)
@@ -487,7 +499,10 @@ public sealed class GetEstateWebsiteProjectHandler(
             [.. types.Select(t => new EstateWebsiteUnitTypeDto(t.Name, t.Type, t.Bhk, t.Bathrooms, t.Balconies, AreaMath.Dto(t.CarpetArea), AreaMath.Dto(t.BuiltUpArea),
                 AreaMath.Dto(t.SuperArea), AreaMath.Dto(t.PlotArea), t.FrontFeet, t.DepthFeet, ProjectMapper.Photo(t.FloorPlan), stock.FromPrice([t]), t.PriceOnRequest,
                 WebsiteListings.Availability(stock.StatusesOf(t.Id))))],
-            stock.FromPrice(types), stock.Availability(p.Id), p.Featured);
+            stock.FromPrice(types), stock.Availability(p.Id), p.Featured)
+        {
+            Videos = await videos.PublicAsync(Models.Videos.EstateListingKind.Project, p.Id, company, ct),
+        };
     }
 }
 

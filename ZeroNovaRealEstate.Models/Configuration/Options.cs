@@ -101,3 +101,29 @@ public sealed class ShareOptions
     /// </summary>
     public int EnquiriesPerHour { get; set; } = 5;
 }
+
+/// <summary>
+/// Config section <c>"Media"</c> — zeronova-media, the video service (D36): its address and this service's key there as
+/// client <see cref="ClientId"/> (<c>real-estate</c>). The key is a secret, <c>zeronovarealestate--Media--ClientKey</c>, the
+/// same value as media's <c>zeronovamedia--Clients--real-estate--Key</c>. The account is always the company. A missing (or
+/// short, placeholder) key keeps the service up: only the video operations say video is not set up yet.
+/// </summary>
+public sealed class MediaOptions
+{
+    public const string SectionName = "Media";
+
+    /// <summary>zeronova-media's address: prod <c>http://zeronova-media:8080</c> (in the cluster), dev <c>https://media-dev.zrnova.com</c>.</summary>
+    public string BaseUrl { get; set; } = string.Empty;
+
+    /// <summary>This service's client id at zeronova-media; events of any other client are dropped.</summary>
+    public string ClientId { get; set; } = "real-estate";
+
+    /// <summary>Secret.</summary>
+    public string ClientKey { get; set; } = string.Empty;
+
+    /// <summary>How long a playback grant lives (seconds, 60–900).</summary>
+    public int GrantSeconds { get; set; } = 600;
+
+    /// <summary>zeronova-media refuses keys shorter than 24 characters: such a value is a placeholder.</summary>
+    public bool IsConfigured => !string.IsNullOrWhiteSpace(BaseUrl) && ClientKey.Trim().Length >= 24;
+}

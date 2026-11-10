@@ -222,7 +222,7 @@ public sealed record DeleteProjectCommand(string ProjectId) : IRequest<bool>;
 
 public sealed class DeleteProjectHandler(
     IProjectRepository projects, IPropertyRepository properties, IUnitTypeRepository unitTypes, IPriceListRepository priceLists, IPaymentPlanRepository plans,
-    MatchEngine engine)
+    MatchEngine engine, Videos.EstateVideoBook videos)
     : IRequestHandler<DeleteProjectCommand, bool>
 {
     public async Task<bool> Handle(DeleteProjectCommand request, CancellationToken ct)
@@ -244,6 +244,8 @@ public sealed class DeleteProjectHandler(
             await plans.DeleteAsync(id, ct);
         foreach (var type in types)
             await engine.ForUnitTypeAsync(project.Id, type.Id, ct);
+        // Its videos go too (D36; zeronova-media's copies as well as it can). Units have none of their own.
+        await videos.RemoveForListingAsync(Models.Videos.EstateListingKind.Project, project.Id, project.CompanyId, ct);
         return true;
     }
 }

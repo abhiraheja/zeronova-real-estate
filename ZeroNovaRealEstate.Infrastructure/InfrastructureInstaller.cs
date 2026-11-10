@@ -25,7 +25,7 @@ public static class InfrastructureInstaller
         services.AddDomainInstaller();
         services.AddMongo(configuration);
         // Producers (the agents' bells, contacts and enquiries for zeronova-lead, WhatsApp templates for zeronova-social) and
-        // the consumers of zeronova-lead's lead-enquiry-received and zeronova-social's whatsapp-failed, from the PubSub assembly; the outbox, inbox and unit of work come from here.
+        // the consumers of zeronova-lead's lead-enquiry-received and zeronova-social's whatsapp-failed and zeronova-media's video-ready / video-failed, from the PubSub assembly; the outbox, inbox and unit of work come from here.
         services.AddZeroNovaMessaging(configuration, typeof(PubSubAssembly).Assembly);
 
         services.AddScoped<IPropertyRepository, PropertyRepository>();
@@ -50,6 +50,7 @@ public static class InfrastructureInstaller
         services.AddScoped<IEnquiryRepository, EnquiryRepository>();
         services.AddScoped<ICustomerRepository, CustomerRepository>();
         services.AddScoped<IDemandSignalRepository, DemandSignalRepository>();
+        services.AddScoped<IEstateVideoRepository, EstateVideoRepository>();
         services.AddHostedService<IndexInitializer>();
         // After the indexes (hosted services start in order): holds that ran out go back to available.
         services.AddHostedService<HoldReleaseJob>();
@@ -61,6 +62,12 @@ public static class InfrastructureInstaller
         services.TryAddSingleton(TimeProvider.System);
         services.AddSingleton(configuration.GetSection(DocumentsOptions.SectionName).Get<DocumentsOptions>() ?? new DocumentsOptions());
         services.AddSingleton(configuration.GetSection(ShareOptions.SectionName).Get<ShareOptions>() ?? new ShareOptions());
+
+        // Property and project videos (D36): zeronova-media keeps and streams them (client "real-estate", account = the
+        // company). A missing key keeps the service up; only the video operations are refused.
+        var media = configuration.GetSection(MediaOptions.SectionName).Get<MediaOptions>() ?? new MediaOptions();
+        services.AddSingleton(media);
+        services.AddHttpClient<IMediaClient, Media.MediaHttpClient>(http => http.Timeout = TimeSpan.FromSeconds(20));
 
         // Aadhaar and PAN are sealed with Core's master key (D11). A missing or placeholder key leaves the service up.
         var encryption = configuration.GetSection(EncryptionOptions.SectionName).Get<EncryptionOptions>() ?? new EncryptionOptions();

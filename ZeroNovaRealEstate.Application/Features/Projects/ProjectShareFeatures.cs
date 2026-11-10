@@ -79,7 +79,7 @@ public sealed class GetProjectSharesHandler(IShareRepository shares, IProjectRep
 public sealed record GetSharedProjectQuery(string Token) : IRequest<SharedProjectDto>;
 
 public sealed class GetSharedProjectHandler(IShareRepository shares, IProjectRepository projects, IUnitTypeRepository unitTypes, IPropertyRepository properties,
-    IEstateSettingsRepository settings, TimeProvider clock)
+    IEstateSettingsRepository settings, TimeProvider clock, Videos.EstateVideoBook videos)
     : IRequestHandler<GetSharedProjectQuery, SharedProjectDto>
 {
     public async Task<SharedProjectDto> Handle(GetSharedProjectQuery request, CancellationToken ct)
@@ -94,6 +94,7 @@ public sealed class GetSharedProjectHandler(IShareRepository shares, IProjectRep
         var units = (await properties.GetDocuments(u => u.ProjectId == p.Id, false, company).Select(u => new { u.UnitTypeId, u.Status, u.PriceValue }).ToListAsync(ct))
             .ToLookup(u => u.UnitTypeId);
         await shares.RecordOpenAsync(share.Id, company, clock.GetUtcNow().UtcDateTime, ct);
+        var shown = p.IsDeleted ? [] : await videos.PublicAsync(Models.Videos.EstateListingKind.Project, p.Id, company, ct);
 
         return new SharedProjectDto(p.Name, p.Categories, p.Stage, p.City, p.Locality, p.Address, p.Latitude, p.Longitude,
             [.. p.Landmarks.Select(l => new LandmarkDto(l.Name, l.DistanceKm, l.Minutes))], AreaMath.Dto(p.LandArea),
@@ -109,7 +110,7 @@ public sealed class GetSharedProjectHandler(IShareRepository shares, IProjectRep
                 return new SharedUnitTypeDto(t.Name, t.Type, t.Bhk, t.Bathrooms, t.Balconies, AreaMath.Dto(t.CarpetArea), AreaMath.Dto(t.BuiltUpArea),
                     AreaMath.Dto(t.SuperArea), AreaMath.Dto(t.PlotArea), ProjectMapper.Photo(t.FloorPlan), from, t.PriceOnRequest, available.Count);
             })],
-            s.DealerName, s.DealerPhone, s.ReraNumber, !p.IsDeleted);
+            s.DealerName, s.DealerPhone, s.ReraNumber, !p.IsDeleted) { Videos = shown };
     }
 }
 

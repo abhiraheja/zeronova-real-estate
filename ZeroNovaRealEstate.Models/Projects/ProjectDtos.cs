@@ -504,6 +504,9 @@ public sealed record ProjectDto(
 {
     /// <summary>Enquiries on this project, its unit types and its units (D30).</summary>
     public ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto Enquiries { get; init; } = ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto.None;
+
+    /// <summary>Its videos (D36), in order, every status — its units show these.</summary>
+    public IReadOnlyList<ZeroNovaRealEstate.Models.Videos.EstateVideoDto> Videos { get; init; } = [];
 }
 
 /// <summary>A project in a list (and on the dashboard): what it is and its units by status.</summary>
@@ -655,4 +658,8 @@ public sealed record SharedProjectDto(
     string? DealerName,
     string? DealerPhone,
     string? ReraNumber,
-    bool Active);
+    bool Active)
+{
+    /// <summary>Its ready videos (D36); play one with <c>ZeroNova_estateShareVideoPlayback</c>.</summary>
+    public IReadOnlyList<ZeroNovaRealEstate.Models.Videos.EstatePublicVideoDto> Videos { get; init; } = [];
+}

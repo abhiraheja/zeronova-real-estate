@@ -160,3 +160,6 @@ public interface IAgentNotificationProducer : IMessageProducer
 {
     Task PublishAsync(DispatchEventMessage evt, CancellationToken ct = default);
 }
+
+/// <summary>Property and project videos (D36), one row per zeronova-media video.</summary>
+public interface IEstateVideoRepository : ICompanyRepositoryBase<EstateVideoDocument>;

@@ -2,6 +2,7 @@ using Microsoft.Extensions.Logging;
 using ZeroNova_Packages.Messaging.PubSub;
 using ZeroNovaRealEstate.Application.Features.Enquiries;
 using ZeroNovaRealEstate.Application.Features.Matching;
+using ZeroNovaRealEstate.Application.Features.Videos;
 using ZeroNovaRealEstate.Application.Interfaces;
 using ZeroNovaRealEstate.Models.Events;
 
@@ -55,3 +56,13 @@ public sealed class LeadEnquiryReceivedConsumer(ConsumerServices services, ILogg
 public sealed class WhatsAppFailedConsumer(ConsumerServices services, ILogger<WhatsAppFailedConsumer> logger)
     : PubSubConsumer<WhatsAppFailedConsumer, WhatsAppSendFailedNotification>(Topics.WhatsAppLifecycle.Topic, Topics.WhatsAppLifecycle.FailedSubscription,
         Topics.WhatsAppLifecycle.Failed, services, logger);
+
+/// <summary>A video zeronova-media made ready (D36); the handler marks this service's own (client <c>real-estate</c>) ready on its listing.</summary>
+public sealed class VideoReadyConsumer(ConsumerServices services, ILogger<VideoReadyConsumer> logger)
+    : PubSubConsumer<VideoReadyConsumer, VideoReadyNotification>(Topics.MediaEvents.Topic, Topics.MediaEvents.ReadySubscription,
+        Topics.MediaEvents.VideoReady, services, logger);
+
+/// <summary>A video zeronova-media could not make (too long, no picture, …); the handler marks this service's own failed with the reason.</summary>
+public sealed class VideoFailedConsumer(ConsumerServices services, ILogger<VideoFailedConsumer> logger)
+    : PubSubConsumer<VideoFailedConsumer, VideoFailedNotification>(Topics.MediaEvents.Topic, Topics.MediaEvents.FailedSubscription,
+        Topics.MediaEvents.VideoFailed, services, logger);

@@ -109,7 +109,11 @@ public sealed record SharedPropertyDto(
     string? DealerPhone,
     string? ReraNumber,
     bool StillAvailable,
-    string? Description = null);
+    string? Description = null)
+{
+    /// <summary>Its ready videos (D36; a unit's are its project's); play one with <c>ZeroNova_estateShareVideoPlayback</c>.</summary>
+    public IReadOnlyList<ZeroNovaRealEstate.Models.Videos.EstatePublicVideoDto> Videos { get; init; } = [];
+}
 
 /// <summary>A ready WhatsApp message (M2) — the app opens it in WhatsApp (wa.me) from the dealer's own phone.</summary>
 public sealed record WhatsAppDraftDto(string? Phone, string Text, string? Link);

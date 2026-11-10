@@ -53,6 +53,9 @@ public static class ApplicationInstaller
         // Watched demand (C3): enquiries closed as not available become watched requirements; the watch sweep.
         services.AddScoped<Features.Requirements.WatchedDemand>();
         services.AddScoped<Features.Requirements.DemandSignals>();
+        // Videos (C4, D36): listings' videos in zeronova-media, kept in step by the status poll and media's events.
+        services.AddScoped<Features.Videos.EstateVideoBook>();
+        services.AddScoped<Features.Videos.MediaVideoEvents>();
 
         return services;
     }

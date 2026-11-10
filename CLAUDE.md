@@ -17,7 +17,7 @@ zeronova-study.
 
 ```
 ZeroNovaRealEstate.Api/            Program, Supabase auth, [RequirePermission], GraphQL (Graphql/EstateResolvers.cs)
-ZeroNovaRealEstate.Application/    Features/{Properties,Parties,Requirements,Matching,Enquiries,Customers,Settings,Common}, interfaces
+ZeroNovaRealEstate.Application/    Features/{Properties,Parties,Requirements,Matching,Enquiries,Customers,Videos,Settings,Common}, interfaces
 ZeroNovaRealEstate.Domain/         Documents (re_* collections)
 ZeroNovaRealEstate.Infrastructure/ repositories, indexes, the hold sweep, installers
 ZeroNovaRealEstate.Models/         DTOs, inputs, enums, permissions (EstatePermissions), options, events
@@ -36,6 +36,8 @@ ZeroNovaRealEstate.Tests/          xUnit + Mongo2Go, the real handlers
   match shown, interested or rejected is history and is never offered again.
 - **Aadhaar and PAN are sealed** with the shared `Encryption:Key`; only the last four are kept in clear. A missing or
   placeholder key keeps the service up and refuses only the identity numbers.
+- **Videos live in zeronova-media** (client `real-estate`, D36): never store or return a playable URL; a grant is asked
+  per play. A missing `Media:ClientKey` keeps the service up and refuses only the video operations.
 - Money and sizes are `Decimal128` in Mongo (range queries). Sizes keep their unit and a sq ft value.
 - Logging/OTel, rate limiting, Docker/CI deploy are the owner's (T00b). Don't add them ad hoc.
 - Reply to the owner in Hinglish; write code, docs and commit messages in English.

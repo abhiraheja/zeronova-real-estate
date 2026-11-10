@@ -320,6 +320,17 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                 Builders<DemandSignalDocument>.IndexKeys.Ascending(x => x.CompanyId).Ascending(x => x.Day).Ascending(x => x.Key),
                 new CreateIndexOptions { Name = "company_day_key_unique", Unique = true }), cancellationToken: ct);
 
+            // Videos (D36): a listing's, and one by zeronova-media's id (the events, the status poll).
+            var videos = database.GetCollection<EstateVideoDocument>("re_videos");
+            await videos.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<EstateVideoDocument>(Builders<EstateVideoDocument>.IndexKeys
+                    .Ascending(v => v.CompanyId).Ascending(v => v.ListingKind).Ascending(v => v.ListingId).Ascending(v => v.SortOrder),
+                    new CreateIndexOptions { Name = "company_listing_order" }),
+                new CreateIndexModel<EstateVideoDocument>(Builders<EstateVideoDocument>.IndexKeys.Ascending(v => v.CompanyId).Ascending(v => v.VideoId),
+                    new CreateIndexOptions { Name = "company_video_unique", Unique = true }),
+            ], ct);
+
             var counters = database.GetCollection<CounterDocument>("re_counters");
             await counters.Indexes.CreateOneAsync(new CreateIndexModel<CounterDocument>(
                 Builders<CounterDocument>.IndexKeys.Ascending(c => c.CompanyId).Ascending(c => c.Name),

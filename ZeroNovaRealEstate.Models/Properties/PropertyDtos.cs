@@ -410,6 +410,9 @@ public sealed record PropertyDto(
 {
     /// <summary>Enquiries on this property (D30).</summary>
     public ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto Enquiries { get; init; } = ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto.None;
+
+    /// <summary>Its videos (D36), in order, every status; a project unit shows its project's.</summary>
+    public IReadOnlyList<ZeroNovaRealEstate.Models.Videos.EstateVideoDto> Videos { get; init; } = [];
 }
 
 public enum PropertySort

@@ -350,7 +350,7 @@ public sealed class GetSharesHandler(IShareRepository shares, IPropertyRepositor
 public sealed record GetSharedPropertyQuery(string Token) : IRequest<SharedPropertyDto>;
 
 public sealed class GetSharedPropertyHandler(IShareRepository shares, IPropertyRepository properties, IUnitTypeRepository unitTypes, IEstateSettingsRepository settings,
-    TimeProvider clock)
+    TimeProvider clock, Videos.EstateVideoBook videos)
     : IRequestHandler<GetSharedPropertyQuery, SharedPropertyDto>
 {
     public async Task<SharedPropertyDto> Handle(GetSharedPropertyQuery request, CancellationToken ct)
@@ -362,10 +362,14 @@ public sealed class GetSharedPropertyHandler(IShareRepository shares, IPropertyR
         var s = await EstateSettings.LoadAsync(settings, ct, share.CompanyId);
         var onRequest = await ShareMapping.PriceOnRequestAsync(p, unitTypes, ct, share.CompanyId);
         await shares.RecordOpenAsync(share.Id, share.CompanyId, clock.GetUtcNow().UtcDateTime, ct);
+        // Ready videos (D36) of a listing still there; a unit's are its project's.
+        IReadOnlyList<Models.Videos.EstatePublicVideoDto> shown = p.IsDeleted ? []
+            : p.ProjectId is { } project ? await videos.PublicAsync(Models.Videos.EstateListingKind.Project, project, share.CompanyId, ct)
+            : await videos.PublicAsync(Models.Videos.EstateListingKind.Property, p.Id, share.CompanyId, ct);
         return new SharedPropertyDto(p.Title, p.Purpose, p.Type, p.City, p.Locality, p.Society, AreaMath.Dto(p.PlotArea), AreaMath.Dto(p.BuiltUpArea),
             AreaMath.Dto(p.CarpetArea), AreaMath.Dto(p.SuperArea), onRequest ? null : p.Price, p.Negotiable, p.Rent, p.Deposit, p.Bhk, p.Bathrooms, p.Floor, p.TotalFloors,
             p.Furnishing, p.Facing, p.Corner, p.ParkFacing, p.Amenities, [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], p.VideoUrl,
-            s.DealerName, s.DealerPhone, s.ReraNumber, !p.IsDeleted && p.Status is PropertyStatus.Available or PropertyStatus.OnHold, p.Description);
+            s.DealerName, s.DealerPhone, s.ReraNumber, !p.IsDeleted && p.Status is PropertyStatus.Available or PropertyStatus.OnHold, p.Description) { Videos = shown };
     }
 }
 

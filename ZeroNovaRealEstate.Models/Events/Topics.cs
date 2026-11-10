@@ -53,6 +53,22 @@ public static class Topics
         /// <summary>The subscription (prefixed with <c>Messaging:Source</c>: <c>zeronova-real-estate.whatsapp-failed-sub</c>).</summary>
         public const string FailedSubscription = "whatsapp-failed-sub";
     }
+
+    /// <summary>
+    /// zeronova-media's video events (D36): <c>video-ready</c> and <c>video-failed</c> of every client; this service keeps
+    /// those whose <c>ClientId</c> is its own (<c>Media:ClientId</c>, <c>real-estate</c>).
+    /// </summary>
+    public static class MediaEvents
+    {
+        public const string Topic = "media-events";
+        public const string VideoReady = "video-ready";
+        public const string VideoFailed = "video-failed";
+
+        /// <summary>The subscriptions (prefixed with <c>Messaging:Source</c>: <c>zeronova-real-estate.video-ready-sub</c>, <c>…video-failed-sub</c>).</summary>
+        public const string ReadySubscription = "video-ready-sub";
+
+        public const string FailedSubscription = "video-failed-sub";
+    }
 }
 
 /// <summary>

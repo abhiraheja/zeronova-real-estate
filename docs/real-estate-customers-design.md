@@ -1,6 +1,6 @@
 # Real Estate — enquiries, customers, unmet demand, video and agreement fixes (section 8)
 
-**Status:** design, 2026-11-10. Continues `real-estate-design.md` (D1–D26) with D27–D40. C1, C2 and C3 are built (backend), each with its notes below. **C1 built 2026-11-10
+**Status:** design, 2026-11-10. Continues `real-estate-design.md` (D1–D26) with D27–D40. C1, C2, C3 and C4 are built (backend), each with its notes below. **C1 built 2026-11-10
 (backend; the app's Enquiries screen is not):** `re_enquiries` from zeronova-lead's `lead-enquiry-received`
 (subscription `zeronova-real-estate.lead-enquiry-sub` on `lead-lifecycle`), the share page's `ZeroNova_enquireEstateShare`,
 staff `ZeroNova_addEstateEnquiry` (+ `ZeroNova_estateEnquiryByRef` to poll), `ZeroNova_updateEstateEnquiry`,
@@ -151,6 +151,93 @@ shareUrl, text, phone, match}`; `ZeroNova_estateDemandReport(from, to, groupBy, 
   `EstateWebsiteProjectSummaryDto` and `EstateWebsiteProjectDto`; a public `description` on properties (`PropertyInput` /
   `PropertyDto`, up to 2,000 characters, null keeps, empty clears) shown on `ZeroNova_estateSharedProperty` and the
   website; the notes stay private. Units take the project's overview (no description).
+
+**C4 built 2026-11-10 (backend; the app's upload card and player, and the share page's and website's players, are not built):**
+property and project videos (D36) through zeronova-media (its `docs/media-service.md` 13.2). Real Estate is media
+client `real-estate`, with the company as the account. GraphQL: `ZeroNova_startEstateVideoUpload(listingKind, listingId,
+fileName, sizeBytes, contentType, title)` → `EstateVideoUploadDto {videoId, partSize, partCount, parts {number, url},
+expiresAt, video}`; `ZeroNova_moreEstateVideoParts(videoId, numbers)`; `ZeroNova_completeEstateVideoUpload(videoId, parts
+[{number, etag}])`; `ZeroNova_cancelEstateVideoUpload(videoId)`; `ZeroNova_deleteEstateVideo(videoId)`;
+`ZeroNova_renameEstateVideo(videoId, title)`; `ZeroNova_reorderEstateVideos(listingKind, listingId, videoIds)`. All of these
+need PPRM for a property's video and PPJM for a project's, checked per video. `ZeroNova_estateVideoStatus(videoIds)` (PPRV /
+PPRM / PPJM) is the app's poll. The playback grants are `ZeroNova_estateVideoPlayback(videoId)` (signed in, PPRV / PPRM / PPJM),
+and `ZeroNova_estateShareVideoPlayback(token, videoId)` and `ZeroNova_estateWebsiteVideoPlayback(code, slug, videoId)`
+(both anonymous), each returning `EstateVideoGrantDto {videoId, playbackUrl, posterUrl, durationSeconds, expiresAt}`.
+`PropertyDto` and `ProjectDto` get `videos: [EstateVideoDto]` (videoId, listingKind, listingId, title, status UPLOADING /
+PROCESSING / READY / FAILED, failureReason, durationSeconds, posterUrl, sortOrder, addedAt). `SharedPropertyDto`,
+`SharedProjectDto`, `EstateWebsitePropertyDto` and `EstateWebsiteProjectDto` get `videos: [EstatePublicVideoDto {id, title,
+posterUrl, durationSeconds}]`, ready videos only. How it works:
+
+- **Videos are kept in their own collection, `re_videos`**, one row per video: company, listing kind and id, media's video id,
+  the external ref (`property:<id>` / `project:<id>`), title, status, failure reason, duration, poster, order, when it was
+  added, file name and size, and the time of the last event applied. The rows are not inside the listing, so an upload or an
+  event never clashes with an edit of the property or project. **A unit has no videos of its own:** an upload to a unit is
+  refused, and a unit's `PropertyDto` and share page show its project's videos.
+- **Rules:**
+  - **At most 3 videos per listing.** A failed video counts until it is deleted. An upload abandoned in media shows as failed
+    when the listing's next upload starts or when the app polls.
+  - **Files:** the content type must be `video/*` (media itself takes MP4, MOV, MKV, WEBM and AVI), and a file may be at most
+    **1 GB** (a 2-minute 1080p phone clip is 100–300 MB).
+  - **Length:** every create asks media for `maxDurationSeconds: 120`.
+  - **Title:** the one given, else the file name; at most 200 characters.
+- **The app does the upload.** It `PUT`s each 16 MB part straight to R2 using the URLs and keeps each part's `ETag`. It can ask
+  for more (or renewed) URLs, then completes the upload, and the video goes to PROCESSING. Cancelling aborts the upload in
+  media and drops the row.
+- **Status arrives two ways.** `ZeroNova_estateVideoStatus` asks media (`GET /videos?ids=`) about rows still uploading or
+  processing. The consumers of media's `video-ready` and `video-failed` events on `media-events` (subscriptions
+  `zeronova-real-estate.video-ready-sub` and `zeronova-real-estate.video-failed-sub`, filtered on `event_type`) apply those
+  events. A consumer:
+  - keeps only events with `ClientId == Media:ClientId` (`real-estate`);
+  - finds the row by media's video id **in the event's account** and checks its external ref;
+  - does nothing when the row already has that state (a redelivery);
+  - drops an event older than the last one applied.
+
+  **Too long:** media marks the video failed when it probes the original, seconds to minutes after the upload completes,
+  with "The video is longer than 2 minutes.". A `video-ready` saying the video is over 120 seconds also fails it here
+  (D36's second check). If media no longer has the video, or dropped the upload, the poll finds nothing and the row goes to
+  FAILED "The upload did not finish…".
+- **Playback is always a grant asked for on the server**, never a stored URL. It carries no watermark, lasts
+  `Media:GrantSeconds` (600, clamped to 60–900), and is given only for a READY video. The page asks for the grant when the
+  visitor presses play.
+  - **Viewer refs:** `app:<userId>`; `share:<shareId>:<visit>` (the share's id, not its token, so the link itself never
+    appears in media's logs); `web:<code>:<visit>`. `<visit>` is a new random id for each grant, because media limits key
+    requests per viewer.
+  - **Share links:** only the link's own property (for a unit, its project) or project, and only if it has not been removed.
+  - **Website:** the website must be on and the video's listing listed there: a property that passes `IsListed` (shown,
+    available or on hold, not stale, not a unit) or a project among the website's projects. The slug must be that
+    listing's own.
+- **Deletes:** deleting a video, a property or a project removes the rows and asks media to delete each video (an upload in
+  progress is aborted instead). This is best effort: a media failure is logged and never fails the delete, and media's
+  sweeps drop abandoned uploads. Renaming a video also tells media, best effort.
+- **Without a media key** (or with one shorter than 24 characters, which is a placeholder), the service still runs, like
+  the `Encryption:Key` rule. Listings show their stored videos, every video operation and grant answers "Video is not set up
+  yet.", and deletes skip media with a log line. `zero-wealthgrow-prod` runs no media, so videos stay off there and the
+  YouTube `videoUrl` field is the only video.
+- The existing `videoUrl` field (YouTube) is unchanged.
+
+**C4: the owner's setup** (the build applies none of this):
+
+1. **Secret**, in `wealthgrow-qa` (dev) and `wealthgrow-prod`: make one random value (`openssl rand -hex 32`) and store it
+   under two names: `zeronovamedia--Clients--real-estate--Key` (media's) and `zeronovarealestate--Media--ClientKey` (ours,
+   read as `Media:ClientKey`; our Secret Manager loader takes every `zeronovarealestate--…` secret). For prod, also add both
+   names to `zeronova-k8s/infra/secrets.txt` and the line `put "$(hex_32)" zeronovamedia--Clients--real-estate--Key
+   zeronovarealestate--Media--ClientKey` to `seed-random-secrets.sh`, then run `provision.sh secrets` and the seed script.
+2. **Media's address** for Real Estate: dev `Media:BaseUrl = https://media-dev.zrnova.com` is already set in
+   `appsettings.Development.json`. Prod still needs `Media__BaseUrl: "http://zeronova-media:8080"` in
+   `zeronova-k8s/config/zeronova-real-estate.yaml`. Optional, on media's side (prod `config/zeronova-media.yaml`):
+   `Clients__real-estate__Name` and `Clients__real-estate__MaxDurationSeconds: "120"`.
+3. **Restart zeronova-media** after adding its key (the dev container; the prod api, worker and encoder pods), because it
+   reads secrets only at start-up. Then restart Real Estate.
+4. **R2 CORS:**
+   - The private (upload) buckets already allow `PUT` and expose `ETag` for `app[-dev].zrnova.com`. Add any other origin Real
+     Estate uploads from (the phone apps need none).
+   - The **delivery buckets** (`video[-dev].zrnova.com`) must allow `GET` and `HEAD` from every origin that plays video: the
+     share pages on `app[-dev].zrnova.com` and the dealers' own website domains, so use `AllowedOrigins: ["*"]` (the segments
+     are encrypted). Also add the Cloudflare response-header Transform Rule that sets `Access-Control-Allow-Origin: *` on
+     that host (media doc 7.3).
+5. **Subscriptions** on `media-events`: `zeronova-real-estate.video-ready-sub` (already added in zeronova-k8s 5337773) and
+   `zeronova-real-estate.video-failed-sub` (added to `infra/subscriptions.tsv`, not applied). Dev creates them itself
+   (`Messaging:EnsureResources`).
 
 **The WhatsApp template the dealer creates** (in the app's WhatsApp templates — zeronova-social
 `ZeroNova_createWhatsAppTemplate`, WAPM; Meta, or MSG91, reviews it; nothing in Real Estate calls Meta). Name

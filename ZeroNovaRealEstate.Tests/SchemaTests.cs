@@ -58,6 +58,11 @@ public sealed class SchemaTests
             "watchUntil: DateTime", "revived: Boolean!", "messageVia: MatchMessageVia", "WHATS_APP_TEMPLATE", "draftUrl: String", "shareUrl: String!",
             "watchDays: Int", "matchTemplateName: String", "WEBSITE_SEARCH", "ENQUIRY_NOT_AVAILABLE", "BUDGET_BAND",
             "description: String",
+            "ZeroNova_estateVideoStatus(", "ZeroNova_startEstateVideoUpload(", "ZeroNova_moreEstateVideoParts(", "ZeroNova_completeEstateVideoUpload(",
+            "ZeroNova_cancelEstateVideoUpload(", "ZeroNova_deleteEstateVideo(", "ZeroNova_renameEstateVideo(", "ZeroNova_reorderEstateVideos(",
+            "ZeroNova_estateVideoPlayback(", "ZeroNova_estateShareVideoPlayback(", "ZeroNova_estateWebsiteVideoPlayback(",
+            "EstateVideoDto", "EstateVideoUploadDto", "EstateVideoGrantDto", "EstateVideoPartInput", "EstateListingKind", "PROCESSING",
+            "videos: [EstateVideoDto!]!", "videos: [EstatePublicVideoDto!]!", "playbackUrl: String!", "partSize: Long!",
         })
             Assert.Contains(field, sdl);
 

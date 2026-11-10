@@ -338,7 +338,8 @@ internal static class ProjectLookup
 /// <summary>Projects as members see them: counts by status, the current price list, plans; CP terms only with PBRV (D25).</summary>
 public sealed class ProjectMapper(
     IUnitTypeRepository unitTypes, IPropertyRepository properties, IPriceListRepository priceLists, IPaymentPlanRepository plans,
-    IEstateSettingsRepository settings, EstateScope scope, TimeProvider clock, Enquiries.EnquiryCounts enquiries)
+    IEstateSettingsRepository settings, EstateScope scope, TimeProvider clock, Enquiries.EnquiryCounts enquiries,
+    Videos.EstateVideoBook videos)
 {
     private sealed record UnitRow(string? ProjectId, string? UnitTypeId, PropertyStatus Status, decimal? Price);
 
@@ -360,6 +361,7 @@ public sealed class ProjectMapper(
         var names = types.ToDictionary(t => t.Id, t => t.Name);
         var projectEnquiries = await enquiries.ForProjectsAsync([p.Id], ct);
         var typeEnquiries = await enquiries.ForUnitTypesAsync(types.Select(t => t.Id), ct);
+        var projectVideos = (await videos.OfAsync(Models.Videos.EstateListingKind.Project, [p.Id], false, null, ct))[p.Id];
         var cp = scope.Has(EstatePermissions.BrokerageView) && p.CpTerms is { } t
             ? new CpTermsDto(t.CommissionPercent, [.. t.PerUnitType.Select(x => new CpUnitTypeAmountDto(x.UnitTypeId, x.Amount))], t.PaidWhen, t.LeadValidityDays,
                 t.ValidUntil, t.Notes)
@@ -387,6 +389,7 @@ public sealed class ProjectMapper(
             new DateTimeOffset(DateTime.SpecifyKind(p.LastConfirmedAt, DateTimeKind.Utc)), p.CreatedBy?.ChangedDate, p.ShowOnWebsite, p.Featured, p.Slug)
         {
             Enquiries = Enquiries.EnquiryCounts.Of(projectEnquiries, p.Id),
+            Videos = [.. projectVideos.Select(Videos.EstateVideoBook.Dto)],
         };
     }
 

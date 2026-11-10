@@ -270,7 +270,8 @@ public sealed class ConfirmPropertyHandler(IPropertyRepository properties, Match
 public sealed record DeletePropertyCommand(string PropertyId) : IRequest<bool>;
 
 /// <summary>Removes a property. A project unit needs PPJM and may not be booked or sold (design 7.3).</summary>
-public sealed class DeletePropertyHandler(IPropertyRepository properties, MatchEngine engine, EstateScope scope) : IRequestHandler<DeletePropertyCommand, bool>
+public sealed class DeletePropertyHandler(IPropertyRepository properties, MatchEngine engine, EstateScope scope, Videos.EstateVideoBook videos)
+    : IRequestHandler<DeletePropertyCommand, bool>
 {
     public async Task<bool> Handle(DeletePropertyCommand request, CancellationToken ct)
     {
@@ -284,6 +285,8 @@ public sealed class DeletePropertyHandler(IPropertyRepository properties, MatchE
         }
         await properties.DeleteAsync(property.Id, ct);
         await engine.DropForPropertyAsync(property.Id, ct);
+        // Its videos go too (D36; zeronova-media's copies as well as it can).
+        await videos.RemoveForListingAsync(Models.Videos.EstateListingKind.Property, property.Id, property.CompanyId, ct);
         return true;
     }
 }

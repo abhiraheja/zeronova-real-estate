@@ -28,6 +28,9 @@ public sealed class PropertyRepository(IMongoDatabase database, IRequestContext 
 public sealed class ProjectRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<ProjectDocument>(database, context), IProjectRepository;
 
+public sealed class EstateVideoRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<EstateVideoDocument>(database, context), IEstateVideoRepository;
+
 public sealed class UnitTypeRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<UnitTypeDocument>(database, context), IUnitTypeRepository;
 

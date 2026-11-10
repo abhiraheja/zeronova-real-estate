@@ -134,7 +134,11 @@ public sealed record EstateWebsitePropertyDto(
     bool? PetsAllowed,
     IReadOnlyList<PhotoDto> Photos,
     string? VideoUrl,
-    string? Description);
+    string? Description)
+{
+    /// <summary>Its ready videos (D36); play one with <c>ZeroNova_estateWebsiteVideoPlayback(code, slug, videoId)</c>.</summary>
+    public IReadOnlyList<ZeroNovaRealEstate.Models.Videos.EstatePublicVideoDto> Videos { get; init; } = [];
+}
 
 public sealed record EstateWebsitePropertyPageDto(int TotalCount, int Page, int PageSize, IReadOnlyList<EstateWebsitePropertyDto> Items);
 
@@ -249,4 +253,8 @@ public sealed record EstateWebsiteProjectDto(
     IReadOnlyList<EstateWebsiteUnitTypeDto> UnitTypes,
     decimal? FromPrice,
     EstateWebsiteAvailability Availability,
-    bool Featured);
+    bool Featured)
+{
+    /// <summary>Its ready videos (D36); play one with <c>ZeroNova_estateWebsiteVideoPlayback(code, slug, videoId)</c>.</summary>
+    public IReadOnlyList<ZeroNovaRealEstate.Models.Videos.EstatePublicVideoDto> Videos { get; init; } = [];
+}

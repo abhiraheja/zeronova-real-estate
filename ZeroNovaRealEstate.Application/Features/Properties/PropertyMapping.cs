@@ -16,7 +16,8 @@ namespace ZeroNovaRealEstate.Application.Features.Properties;
 /// </summary>
 public sealed class PropertyMapper(
     IPartyRepository parties, ICustomFieldRepository fields, IMatchRepository matches, IRequirementRepository requirements,
-    IEstateSettingsRepository settings, EstateScope scope, TimeProvider clock, Enquiries.EnquiryCounts enquiries)
+    IEstateSettingsRepository settings, EstateScope scope, TimeProvider clock, Enquiries.EnquiryCounts enquiries,
+    Videos.EstateVideoBook videos)
 {
     public async Task<PropertyDto> OneAsync(PropertyDocument property, CancellationToken ct) => (await ManyAsync([property], ct))[0];
 
@@ -41,11 +42,15 @@ public sealed class PropertyMapper(
         var counts = (await open.Select(m => m.PropertyId).ToListAsync(ct)).GroupBy(id => id).ToDictionary(g => g.Key, g => g.Count());
 
         var enquiryCounts = await enquiries.ForPropertiesAsync(ids, ct);
+        // Videos (D36): a property's own; a project unit's are its project's.
+        var ownVideos = await videos.OfAsync(Models.Videos.EstateListingKind.Property, [.. rows.Where(p => p.ProjectId is null).Select(p => p.Id)], false, null, ct);
+        var projectVideos = await videos.OfAsync(Models.Videos.EstateListingKind.Project, [.. rows.Select(p => p.ProjectId).OfType<string>()], false, null, ct);
 
         var now = clock.GetUtcNow().UtcDateTime;
         return [.. rows.Select(p => Map(p, s, labels, owners, counts.GetValueOrDefault(p.Id), scope.SeesOwners, now) with
         {
             Enquiries = Enquiries.EnquiryCounts.Of(enquiryCounts, p.Id),
+            Videos = [.. (p.ProjectId is { } project ? projectVideos[project] : ownVideos[p.Id]).Select(Videos.EstateVideoBook.Dto)],
         })];
     }
 
