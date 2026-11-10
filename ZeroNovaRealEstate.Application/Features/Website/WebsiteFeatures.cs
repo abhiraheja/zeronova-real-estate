@@ -21,11 +21,13 @@ namespace ZeroNovaRealEstate.Application.Features.Website;
 /// <summary>The company's website: on or off and its code — the code made on first ask (as Tutor's coaching code).</summary>
 public sealed record GetEstateWebsiteSettingsQuery : IRequest<EstateWebsiteSettingsDto>;
 
-public sealed class GetEstateWebsiteSettingsHandler(IWebsiteRepository websites, IPropertyRepository properties, IProjectRepository projects)
+public sealed class GetEstateWebsiteSettingsHandler(IWebsiteRepository websites, IPropertyRepository properties, IProjectRepository projects,
+    IEstateSettingsRepository settings, TimeProvider clock)
     : IRequestHandler<GetEstateWebsiteSettingsQuery, EstateWebsiteSettingsDto>
 {
     public async Task<EstateWebsiteSettingsDto> Handle(GetEstateWebsiteSettingsQuery request, CancellationToken ct) =>
-        await WebsiteCodes.DtoAsync(await WebsiteCodes.EnsureAsync(websites, ct), properties, projects, ct);
+        await WebsiteCodes.DtoAsync(await WebsiteCodes.EnsureAsync(websites, ct), properties, projects,
+            await WebsiteFreshness.LoadAsync(settings, null, clock, ct), ct);
 }
 
 /// <summary>Turns the website on or off, or gives it another code (unique across companies). Null keeps.</summary>
@@ -39,7 +41,8 @@ public sealed class SaveEstateWebsiteSettingsValidator : AbstractValidator<SaveE
             .WithMessage("A website code has 4 to 20 letters and digits.");
 }
 
-public sealed class SaveEstateWebsiteSettingsHandler(IWebsiteRepository websites, IPropertyRepository properties, IProjectRepository projects)
+public sealed class SaveEstateWebsiteSettingsHandler(IWebsiteRepository websites, IPropertyRepository properties, IProjectRepository projects,
+    IEstateSettingsRepository settings, TimeProvider clock)
     : IRequestHandler<SaveEstateWebsiteSettingsCommand, EstateWebsiteSettingsDto>
 {
     public async Task<EstateWebsiteSettingsDto> Handle(SaveEstateWebsiteSettingsCommand request, CancellationToken ct)
@@ -61,7 +64,7 @@ public sealed class SaveEstateWebsiteSettingsHandler(IWebsiteRepository websites
         {
             throw new ValidatorException($"The website code {site.Code} is taken; choose another.");
         }
-        return await WebsiteCodes.DtoAsync(site, properties, projects, ct);
+        return await WebsiteCodes.DtoAsync(site, properties, projects, await WebsiteFreshness.LoadAsync(settings, null, clock, ct), ct);
     }
 }
 
@@ -99,8 +102,9 @@ public static class WebsiteCodes
     }
 
     internal static async Task<EstateWebsiteSettingsDto> DtoAsync(EstateWebsiteDocument site, IPropertyRepository properties, IProjectRepository projects,
-        CancellationToken ct) =>
-        new(site.Enabled, site.Code, await WebsiteListings.Properties(properties, null).CountAsync(ct), await WebsiteListings.Projects(projects, null).CountAsync(ct));
+        WebsiteFreshness fresh, CancellationToken ct) =>
+        new(site.Enabled, site.Code, await WebsiteListings.Properties(properties, null, fresh).CountAsync(ct),
+            await WebsiteListings.Projects(projects, null).CountAsync(ct));
 }
 
 /// <summary>Slugs and the website's search words.</summary>
@@ -160,23 +164,45 @@ public static class WebsiteSlugs
 }
 
 /// <summary>
-/// What the website lists (cms doc 06 §12): properties with Show on website that are available or on hold — never a
-/// project unit on its own — and projects with Show on website; an own project only with its RERA registration or marked
-/// as needing none (RERA s.3, as for sharing). <paramref name="company"/> null = the caller's company.
+/// The dealer's freshness limits as instants (D6): a property for sale last confirmed before <see cref="SaleCut"/> (for
+/// rent, <see cref="RentCut"/>) is stale.
+/// </summary>
+public sealed record WebsiteFreshness(DateTime SaleCut, DateTime RentCut)
+{
+    public static async Task<WebsiteFreshness> LoadAsync(IEstateSettingsRepository settings, string? company, TimeProvider clock, CancellationToken ct)
+    {
+        var s = await EstateSettings.LoadAsync(settings, ct, company);
+        var now = clock.GetUtcNow().UtcDateTime;
+        return new WebsiteFreshness(now.AddDays(-s.SaleFreshDays), now.AddDays(-s.RentFreshDays));
+    }
+
+    public bool IsFresh(PropertyDocument p) => p.LastConfirmedAt >= (p.Purpose == PropertyPurpose.Rent ? RentCut : SaleCut);
+}
+
+/// <summary>
+/// What the website lists (cms doc 06 §12): properties with Show on website that are available or on hold and not stale
+/// (D6: a stale listing is never sent to a customer; owner decision 2026-11-10) — never a project unit on its own — and
+/// projects with Show on website; an own project only with its RERA registration or marked as needing none (RERA s.3, as
+/// for sharing). <paramref name="company"/> null = the caller's company.
 /// </summary>
 public static class WebsiteListings
 {
-    public static IQueryable<PropertyDocument> Properties(IPropertyRepository properties, string? company) =>
-        properties.GetDocuments(p => p.ShowOnWebsite && p.ProjectId == null && (p.Status == PropertyStatus.Available || p.Status == PropertyStatus.OnHold),
+    public static IQueryable<PropertyDocument> Properties(IPropertyRepository properties, string? company, WebsiteFreshness fresh)
+    {
+        var saleCut = fresh.SaleCut;
+        var rentCut = fresh.RentCut;
+        return properties.GetDocuments(p => p.ShowOnWebsite && p.ProjectId == null && (p.Status == PropertyStatus.Available || p.Status == PropertyStatus.OnHold)
+            && ((p.Purpose == PropertyPurpose.Rent && p.LastConfirmedAt >= rentCut) || (p.Purpose != PropertyPurpose.Rent && p.LastConfirmedAt >= saleCut)),
             false, company);
+    }
 
     public static IQueryable<ProjectDocument> Projects(IProjectRepository projects, string? company) =>
         projects.GetDocuments(p => p.ShowOnWebsite && (p.Kind == ProjectKind.Partner || p.ReraNotRequired || p.Reras.Any()), false, company);
 
     public static bool MayList(ProjectDocument p) => p.Kind == ProjectKind.Partner || p.ReraNotRequired || p.Reras.Count > 0;
 
-    public static bool IsListed(PropertyDocument p) =>
-        !p.IsDeleted && p.ShowOnWebsite && p.ProjectId is null && p.Status is PropertyStatus.Available or PropertyStatus.OnHold;
+    public static bool IsListed(PropertyDocument p, WebsiteFreshness fresh) =>
+        !p.IsDeleted && p.ShowOnWebsite && p.ProjectId is null && p.Status is PropertyStatus.Available or PropertyStatus.OnHold && fresh.IsFresh(p);
 
     public static readonly PropertyType[] CommercialTypes = [PropertyType.Shop, PropertyType.Office, PropertyType.Showroom, PropertyType.Warehouse];
     public static readonly PropertyType[] PlotTypes = [PropertyType.Plot, PropertyType.IndustrialPlot, PropertyType.AgriculturalLand];
@@ -220,7 +246,8 @@ internal static class WebsiteLookup
 /// <summary>The company as its share pages show it, and the cities and localities its listings are in.</summary>
 public sealed record GetEstateWebsiteQuery(string Code) : IRequest<EstateWebsiteDto>;
 
-public sealed class GetEstateWebsiteHandler(IWebsiteRepository websites, IPropertyRepository properties, IProjectRepository projects, IEstateSettingsRepository settings)
+public sealed class GetEstateWebsiteHandler(IWebsiteRepository websites, IPropertyRepository properties, IProjectRepository projects, IEstateSettingsRepository settings,
+    TimeProvider clock)
     : IRequestHandler<GetEstateWebsiteQuery, EstateWebsiteDto>
 {
     public async Task<EstateWebsiteDto> Handle(GetEstateWebsiteQuery request, CancellationToken ct)
@@ -228,7 +255,8 @@ public sealed class GetEstateWebsiteHandler(IWebsiteRepository websites, IProper
         var site = await WebsiteLookup.RequireAsync(websites, request.Code, ct);
         var company = site.CompanyId;
         var s = await EstateSettings.LoadAsync(settings, ct, company);
-        var listed = await WebsiteListings.Properties(properties, company).Select(p => new { p.Locality, p.LocalityKey, p.City, p.Purpose }).ToListAsync(ct);
+        var fresh = await WebsiteFreshness.LoadAsync(settings, company, clock, ct);
+        var listed = await WebsiteListings.Properties(properties, company, fresh).Select(p => new { p.Locality, p.LocalityKey, p.City, p.Purpose }).ToListAsync(ct);
         var listedProjects = await WebsiteListings.Projects(projects, company).Select(p => new { p.Locality, p.LocalityKey, p.City }).ToListAsync(ct);
 
         var places = listed.Select(p => (p.Locality, p.LocalityKey, p.City, Project: false))
@@ -248,7 +276,8 @@ public sealed class GetEstateWebsiteHandler(IWebsiteRepository websites, IProper
 public sealed record GetEstateWebsitePropertiesQuery(string Code, EstateWebsitePropertyFilterInput Filter, EstateWebsitePropertySort Sort, int Page, int PageSize)
     : IRequest<EstateWebsitePropertyPageDto>;
 
-public sealed class GetEstateWebsitePropertiesHandler(IWebsiteRepository websites, IPropertyRepository properties)
+public sealed class GetEstateWebsitePropertiesHandler(IWebsiteRepository websites, IPropertyRepository properties, IEstateSettingsRepository settings,
+    TimeProvider clock)
     : IRequestHandler<GetEstateWebsitePropertiesQuery, EstateWebsitePropertyPageDto>
 {
     public async Task<EstateWebsitePropertyPageDto> Handle(GetEstateWebsitePropertiesQuery request, CancellationToken ct)
@@ -259,7 +288,8 @@ public sealed class GetEstateWebsitePropertiesHandler(IWebsiteRepository website
         var page = Math.Max(1, request.Page);
         var size = Math.Clamp(request.PageSize, 1, 48);
         var empty = new EstateWebsitePropertyPageDto(0, page, size, []);
-        var query = WebsiteListings.Properties(properties, company);
+        var fresh = await WebsiteFreshness.LoadAsync(settings, company, clock, ct);
+        var query = WebsiteListings.Properties(properties, company, fresh);
 
         if (f.Purpose is { } purpose)
             query = query.Where(p => p.Purpose == purpose);
@@ -281,7 +311,7 @@ public sealed class GetEstateWebsitePropertiesHandler(IWebsiteRepository website
         if (EstateText.Clean(f.City) is { } cityName)
         {
             // The city as the listings spell it ("mohali" finds "Mohali").
-            var cities = (await WebsiteListings.Properties(properties, company).Select(p => p.City).ToListAsync(ct)).Distinct().ToList();
+            var cities = (await WebsiteListings.Properties(properties, company, fresh).Select(p => p.City).ToListAsync(ct)).Distinct().ToList();
             if (cities.FirstOrDefault(c => string.Equals(c, cityName, StringComparison.OrdinalIgnoreCase)) is not { } city)
                 return empty;
             query = query.Where(p => p.City == city);
@@ -291,7 +321,7 @@ public sealed class GetEstateWebsitePropertiesHandler(IWebsiteRepository website
             // By name ("Sector 70") or by slug ("sector-70"), as a "Popular localities" tile sends it.
             var key = EstateText.Key(locality);
             var slug = WebsiteSlugs.Slugify(locality);
-            var keys = (await WebsiteListings.Properties(properties, company).Select(p => new { p.Locality, p.LocalityKey }).ToListAsync(ct))
+            var keys = (await WebsiteListings.Properties(properties, company, fresh).Select(p => new { p.Locality, p.LocalityKey }).ToListAsync(ct))
                 .Where(l => l.LocalityKey == key || WebsiteSlugs.Slugify(l.Locality) == slug).Select(l => l.LocalityKey).Distinct().ToList();
             if (keys.Count == 0)
                 return empty;
@@ -342,12 +372,13 @@ public sealed class GetEstateWebsitePropertiesHandler(IWebsiteRepository website
 }
 
 /// <summary>
-/// A property page by its slug: the property while listed; once sold, rented, withdrawn, taken off the website or
-/// removed, "no longer available" with similar listings (cms doc 06 §12).
+/// A property page by its slug: the property while listed; once sold, rented, withdrawn, stale (D6), taken off the
+/// website or removed, "no longer available" with similar listings (cms doc 06 §12).
 /// </summary>
 public sealed record GetEstateWebsitePropertyQuery(string Code, string Slug) : IRequest<EstateWebsitePropertyResultDto>;
 
-public sealed class GetEstateWebsitePropertyHandler(IWebsiteRepository websites, IPropertyRepository properties)
+public sealed class GetEstateWebsitePropertyHandler(IWebsiteRepository websites, IPropertyRepository properties, IEstateSettingsRepository settings,
+    TimeProvider clock)
     : IRequestHandler<GetEstateWebsitePropertyQuery, EstateWebsitePropertyResultDto>
 {
     private const int SimilarCount = 4;
@@ -363,20 +394,21 @@ public sealed class GetEstateWebsitePropertyHandler(IWebsiteRepository websites,
         if (p is null)
             return new EstateWebsitePropertyResultDto(EstateWebsiteListingState.NotFound, null, null, []);
 
-        var similar = await SimilarAsync(p, company, ct);
-        return WebsiteListings.IsListed(p)
+        var fresh = await WebsiteFreshness.LoadAsync(settings, company, clock, ct);
+        var similar = await SimilarAsync(p, company, fresh, ct);
+        return WebsiteListings.IsListed(p, fresh)
             ? new EstateWebsitePropertyResultDto(EstateWebsiteListingState.Listed, p.Title, WebsiteListings.Map(p), similar)
             : new EstateWebsitePropertyResultDto(EstateWebsiteListingState.NoLongerAvailable, p.ShowOnWebsite ? p.Title : null, null, similar);
     }
 
     /// <summary>Listed properties for the same purpose in the same city: the same type first, the same locality, then the nearest price.</summary>
-    private async Task<IReadOnlyList<EstateWebsitePropertyDto>> SimilarAsync(PropertyDocument p, string company, CancellationToken ct)
+    private async Task<IReadOnlyList<EstateWebsitePropertyDto>> SimilarAsync(PropertyDocument p, string company, WebsiteFreshness fresh, CancellationToken ct)
     {
         var city = p.City;
         var id = p.Id;
         var purpose = p.Purpose;
         var type = p.Type;
-        var candidates = WebsiteListings.Properties(properties, company).Where(x => x.Id != id && x.Purpose == purpose && x.City == city);
+        var candidates = WebsiteListings.Properties(properties, company, fresh).Where(x => x.Id != id && x.Purpose == purpose && x.City == city);
         var rows = await candidates.Where(x => x.Type == type).OrderByDescending(x => x.Id).Take(60).ToListAsync(ct);
         if (rows.Count < SimilarCount)
             rows.AddRange(await candidates.Where(x => x.Type != type).OrderByDescending(x => x.Id).Take(60).ToListAsync(ct));

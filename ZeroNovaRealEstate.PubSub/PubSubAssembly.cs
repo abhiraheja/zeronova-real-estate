@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using ZeroNova_Packages.Messaging.PubSub;
+using ZeroNovaRealEstate.Application.Features.Enquiries;
 using ZeroNovaRealEstate.Application.Interfaces;
 using ZeroNovaRealEstate.Models.Events;
 
@@ -23,3 +24,20 @@ public sealed class AgentNotificationProducer(ProducerServices services, ILogger
     public Task PublishAsync(DispatchEventMessage evt, CancellationToken ct = default) =>
         ProduceAsync(Topics.CommunicationEvents.DispatchEvent, evt, "real-estate", cancellationToken: ct);
 }
+
+/// <summary>An enquiry for zeronova-lead (share page, "Add enquiry"), to its <c>lead-captured</c> topic, through the outbox.</summary>
+public sealed class LeadCaptureProducer(ProducerServices services, ILogger<LeadCaptureProducer> logger)
+    : PubSubProducer<LeadCaptureProducer>(Topics.LeadCaptured.Topic, services, logger), ILeadCaptureProducer
+{
+    public Task PublishAsync(LeadCapturedEnquiryEvent evt, string changedBy, CancellationToken ct = default) =>
+        ProduceAsync(Topics.LeadCaptured.Enquiry, evt, changedBy, cancellationToken: ct);
+}
+
+// ── Consumers ────────────────────────────────────────────────────────────────────────────────────────────────────
+// One class per (topic, subscription, event type); the notification and its handler live in Application
+// (Features/Enquiries). The subscription is prefixed with Messaging:Source: zeronova-real-estate.lead-enquiry-sub.
+
+/// <summary>Every enquiry zeronova-lead captured (D28); the handler keeps the Real Estate ones in <c>re_enquiries</c>.</summary>
+public sealed class LeadEnquiryReceivedConsumer(ConsumerServices services, ILogger<LeadEnquiryReceivedConsumer> logger)
+    : PubSubConsumer<LeadEnquiryReceivedConsumer, LeadEnquiryReceivedNotification>(Topics.LeadLifecycle.Topic, Topics.LeadLifecycle.EnquirySubscription,
+        Topics.LeadLifecycle.EnquiryReceived, services, logger);

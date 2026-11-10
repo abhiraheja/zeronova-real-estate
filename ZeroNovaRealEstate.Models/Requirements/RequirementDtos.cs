@@ -58,6 +58,9 @@ public sealed class RequirementInput
     public string? NeededBy { get; init; }
 
     public string? Notes { get; init; }
+
+    /// <summary>The enquiry this requirement answers (D31): it becomes "requirement added" and links here.</summary>
+    public string? EnquiryId { get; init; }
 }
 
 public sealed record RequirementDto(

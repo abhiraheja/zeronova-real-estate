@@ -117,6 +117,37 @@ public sealed class ShareRepository(IMongoDatabase database, IRequestContext con
     public Task RecordOpenAsync(string shareId, string companyId, DateTime at, CancellationToken ct = default) =>
         Collection.UpdateOneAsync(s => s.Id == shareId && s.CompanyId == companyId,
             Builders<ShareDocument>.Update.Inc(s => s.Opens, 1).Set(s => s.LastOpenedAt, at), cancellationToken: ct);
+
+    public async Task<bool> TryRecordEnquiryAsync(string shareId, string companyId, DateTime at, int perHour, CancellationToken ct = default)
+    {
+        var f = Builders<ShareDocument>.Filter;
+        var share = f.Where(s => s.Id == shareId && s.CompanyId == companyId);
+        // Forget the times older than an hour, then add this one only while fewer than perHour remain (no element at index perHour - 1).
+        await Collection.UpdateOneAsync(share, Builders<ShareDocument>.Update.PullFilter(s => s.RecentEnquiries, t => t < at.AddHours(-1)), cancellationToken: ct);
+        var result = await Collection.UpdateOneAsync(share & f.Exists($"recentEnquiries.{Math.Max(perHour, 1) - 1}", false),
+            Builders<ShareDocument>.Update.Push(s => s.RecentEnquiries, at).Inc(s => s.Enquiries, 1).Set(s => s.LastEnquiryAt, at), cancellationToken: ct);
+        return result.ModifiedCount > 0;
+    }
+}
+
+public sealed class EnquiryRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<EnquiryDocument>(database, context), IEnquiryRepository
+{
+    public async Task<bool> AddIfNewAsync(EnquiryDocument enquiry, CancellationToken ct = default, string? companyId = null)
+    {
+        var company = ResolveCompanyId(companyId);
+        if (await Collection.Find(e => e.CompanyId == company && e.Ref == enquiry.Ref).AnyAsync(ct))
+            return false;
+        try
+        {
+            await AddAsync(enquiry, ct, company);
+            return true;
+        }
+        catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
+        {
+            return false;   // the same event, delivered twice at once; that one stands
+        }
+    }
 }
 
 public sealed class DealRepository(IMongoDatabase database, IRequestContext context)

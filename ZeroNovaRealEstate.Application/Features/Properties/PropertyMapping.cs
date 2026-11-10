@@ -16,7 +16,7 @@ namespace ZeroNovaRealEstate.Application.Features.Properties;
 /// </summary>
 public sealed class PropertyMapper(
     IPartyRepository parties, ICustomFieldRepository fields, IMatchRepository matches, IRequirementRepository requirements,
-    IEstateSettingsRepository settings, EstateScope scope, TimeProvider clock)
+    IEstateSettingsRepository settings, EstateScope scope, TimeProvider clock, Enquiries.EnquiryCounts enquiries)
 {
     public async Task<PropertyDto> OneAsync(PropertyDocument property, CancellationToken ct) => (await ManyAsync([property], ct))[0];
 
@@ -40,8 +40,13 @@ public sealed class PropertyMapper(
         }
         var counts = (await open.Select(m => m.PropertyId).ToListAsync(ct)).GroupBy(id => id).ToDictionary(g => g.Key, g => g.Count());
 
+        var enquiryCounts = await enquiries.ForPropertiesAsync(ids, ct);
+
         var now = clock.GetUtcNow().UtcDateTime;
-        return [.. rows.Select(p => Map(p, s, labels, owners, counts.GetValueOrDefault(p.Id), scope.SeesOwners, now))];
+        return [.. rows.Select(p => Map(p, s, labels, owners, counts.GetValueOrDefault(p.Id), scope.SeesOwners, now) with
+        {
+            Enquiries = Enquiries.EnquiryCounts.Of(enquiryCounts, p.Id),
+        })];
     }
 
     private static PropertyDto Map(PropertyDocument p, EstateSettingsDocument s, IReadOnlyDictionary<string, string> labels,

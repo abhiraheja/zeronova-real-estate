@@ -199,7 +199,8 @@ public sealed record GetEstateDashboardQuery : IRequest<EstateDashboardDto>;
 
 public sealed class GetEstateDashboardHandler(
     IPropertyRepository properties, IRequirementRepository requirements, IMatchRepository matches, IEstateSettingsRepository settings,
-    Properties.PropertyMapper mapper, Projects.ProjectMapper projectMapper, IProjectRepository projects, EstateScope scope, TimeProvider clock)
+    Properties.PropertyMapper mapper, Projects.ProjectMapper projectMapper, IProjectRepository projects, EstateScope scope, TimeProvider clock,
+    IEnquiryRepository enquiries)
     : IRequestHandler<GetEstateDashboardQuery, EstateDashboardDto>
 {
     public async Task<EstateDashboardDto> Handle(GetEstateDashboardQuery request, CancellationToken ct)
@@ -236,7 +237,17 @@ public sealed class GetEstateDashboardHandler(
             ? await projectMapper.SummariesAsync(await projects.GetDocuments().OrderBy(p => p.Name).Take(100).ToListAsync(ct), ct)
             : [];
 
+        // Enquiries (C1): the caller's own unless PRQV; today and this week in India.
+        var mine = Enquiries.EnquiryQueries.Filtered(enquiries, scope, null, false);
+        var today = IndiaTime.Today(clock);
+        var todayStart = IndiaTime.StartUtc(today);
+        var weekStart = IndiaTime.StartUtc(IndiaTime.WeekStart(today));
+        var enquiriesToday = await mine.Where(e => e.OccurredAt >= todayStart).CountAsync(ct);
+        var enquiriesThisWeek = await mine.Where(e => e.OccurredAt >= weekStart).CountAsync(ct);
+        var openEnquiries = await mine.Where(e => e.Status != Models.Enquiries.EnquiryStatus.Closed).CountAsync(ct);
+
         return new EstateDashboardDto(forSale, forRent, stale, active, newMatches, added,
-            await MatchMapping.ManyAsync(latest, properties, requirements, ct), await mapper.ManyAsync(oldest, ct), projectSummaries);
+            await MatchMapping.ManyAsync(latest, properties, requirements, ct), await mapper.ManyAsync(oldest, ct), projectSummaries,
+            enquiriesToday, enquiriesThisWeek, openEnquiries);
     }
 }

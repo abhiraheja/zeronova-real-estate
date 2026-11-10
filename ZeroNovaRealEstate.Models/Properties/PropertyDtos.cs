@@ -400,7 +400,11 @@ public sealed record PropertyDto(
     string? HoldLeadName = null,
     bool ShowOnWebsite = false,
     bool Featured = false,
-    string? WebsiteSlug = null);
+    string? WebsiteSlug = null)
+{
+    /// <summary>Enquiries on this property (D30).</summary>
+    public ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto Enquiries { get; init; } = ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto.None;
+}
 
 public enum PropertySort
 {

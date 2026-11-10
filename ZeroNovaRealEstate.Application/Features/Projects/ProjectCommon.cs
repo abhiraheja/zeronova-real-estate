@@ -338,7 +338,7 @@ internal static class ProjectLookup
 /// <summary>Projects as members see them: counts by status, the current price list, plans; CP terms only with PBRV (D25).</summary>
 public sealed class ProjectMapper(
     IUnitTypeRepository unitTypes, IPropertyRepository properties, IPriceListRepository priceLists, IPaymentPlanRepository plans,
-    IEstateSettingsRepository settings, EstateScope scope, TimeProvider clock)
+    IEstateSettingsRepository settings, EstateScope scope, TimeProvider clock, Enquiries.EnquiryCounts enquiries)
 {
     private sealed record UnitRow(string? ProjectId, string? UnitTypeId, PropertyStatus Status, decimal? Price);
 
@@ -358,6 +358,8 @@ public sealed class ProjectMapper(
         var list = await priceLists.GetDocuments(l => l.ProjectId == p.Id).OrderByDescending(l => l.ListVersion).FirstOrDefaultAsync(ct);
         var planRows = await plans.GetDocuments(x => x.ProjectId == p.Id).OrderBy(x => x.Name).ToListAsync(ct);
         var names = types.ToDictionary(t => t.Id, t => t.Name);
+        var projectEnquiries = await enquiries.ForProjectsAsync([p.Id], ct);
+        var typeEnquiries = await enquiries.ForUnitTypesAsync(types.Select(t => t.Id), ct);
         var cp = scope.Has(EstatePermissions.BrokerageView) && p.CpTerms is { } t
             ? new CpTermsDto(t.CommissionPercent, [.. t.PerUnitType.Select(x => new CpUnitTypeAmountDto(x.UnitTypeId, x.Amount))], t.PaidWhen, t.LeadValidityDays,
                 t.ValidUntil, t.Notes)
@@ -374,12 +376,18 @@ public sealed class ProjectMapper(
             [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], p.VideoUrl, p.DroneUrl, Media(p.Brochure), Photo(p.SitePlan), p.GstPercent, p.Notes,
             [.. p.Milestones.Select(m => new MilestoneDto(m.Id, m.Name, m.Status, m.Date))],
             [.. Updates(p)],
-            [.. types.Select(type => UnitType(type, units.Where(u => u.UnitTypeId == type.Id).ToList()))],
+            [.. types.Select(type => UnitType(type, units.Where(u => u.UnitTypeId == type.Id).ToList()) with
+            {
+                Enquiries = Enquiries.EnquiryCounts.Of(typeEnquiries, type.Id),
+            })],
             ProjectUnits.Count(units.Select(u => u.Status)),
             list is null ? null : PriceList(list, names),
             [.. planRows.Select(x => Plan(x, p.Milestones))],
             EstateSettings.IsStale(p, s, clock.GetUtcNow().UtcDateTime),
-            new DateTimeOffset(DateTime.SpecifyKind(p.LastConfirmedAt, DateTimeKind.Utc)), p.CreatedBy?.ChangedDate, p.ShowOnWebsite, p.Featured, p.Slug);
+            new DateTimeOffset(DateTime.SpecifyKind(p.LastConfirmedAt, DateTimeKind.Utc)), p.CreatedBy?.ChangedDate, p.ShowOnWebsite, p.Featured, p.Slug)
+        {
+            Enquiries = Enquiries.EnquiryCounts.Of(projectEnquiries, p.Id),
+        };
     }
 
     public async Task<IReadOnlyList<ProjectSummaryDto>> SummariesAsync(IReadOnlyList<ProjectDocument> rows, CancellationToken ct)
@@ -398,7 +406,7 @@ public sealed class ProjectMapper(
     {
         var rows = (await properties.GetDocuments(p => p.UnitTypeId == type.Id).Select(p => new { p.Status, p.PriceValue }).ToListAsync(ct))
             .Select(x => new UnitRow(type.ProjectId, type.Id, x.Status, x.PriceValue)).ToList();
-        return UnitType(type, rows);
+        return UnitType(type, rows) with { Enquiries = Enquiries.EnquiryCounts.Of(await enquiries.ForUnitTypesAsync([type.Id], ct), type.Id) };
     }
 
     private static UnitTypeDto UnitType(UnitTypeDocument t, IReadOnlyList<UnitRow> units) => new(t.Id, t.ProjectId, t.Name, t.Type, t.Bhk, t.Bathrooms, t.Balconies,

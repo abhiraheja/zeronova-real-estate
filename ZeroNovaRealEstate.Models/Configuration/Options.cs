@@ -94,4 +94,10 @@ public sealed class ShareOptions
     public const string SectionName = "Share";
 
     public string BaseUrl { get; set; } = "https://app.zeronova.in";
+
+    /// <summary>
+    /// The share page's "Enquire" form: at most this many enquiries per link in any hour (a plain count on the share, not
+    /// rate limiting — that is the owner's T00b).
+    /// </summary>
+    public int EnquiriesPerHour { get; set; } = 5;
 }

@@ -35,6 +35,37 @@ public sealed class EstateScope(IRequestContext context)
         if (!MayWork(requirement))
             throw new ValidatorException("This customer is another agent's.");
     }
+
+    /// <summary>Enquiries follow requirements (D39): one's own (its agent is the caller), or everyone's with PRQV.</summary>
+    public bool MayWork(EnquiryDocument enquiry) => SeesAllRequirements || enquiry.AgentId == UserId;
+
+    public void RequireWork(EnquiryDocument enquiry)
+    {
+        if (!MayWork(enquiry))
+            throw new ValidatorException("This enquiry is another agent's.");
+    }
+}
+
+/// <summary>
+/// India time (Asia/Kolkata: UTC+5:30 all year, no daylight saving) for day, week and month boundaries — weeks start on
+/// Monday.
+/// </summary>
+public static class IndiaTime
+{
+    public static readonly TimeSpan Offset = TimeSpan.FromMinutes(330);
+
+    public static DateOnly DateOf(DateTime utc) => DateOnly.FromDateTime(DateTime.SpecifyKind(utc, DateTimeKind.Utc) + Offset);
+
+    public static DateOnly Today(TimeProvider clock) => DateOf(clock.GetUtcNow().UtcDateTime);
+
+    /// <summary>The instant (UTC) the India day begins.</summary>
+    public static DateTime StartUtc(DateOnly day) => DateTime.SpecifyKind(day.ToDateTime(TimeOnly.MinValue) - Offset, DateTimeKind.Utc);
+
+    public static DateOnly WeekStart(DateOnly day) => day.AddDays(-(((int)day.DayOfWeek + 6) % 7));
+
+    public static DateOnly MonthStart(DateOnly day) => new(day.Year, day.Month, 1);
+
+    public static string Text(DateOnly day) => day.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture);
 }
 
 /// <summary>Text, phones and dates as this service stores them.</summary>

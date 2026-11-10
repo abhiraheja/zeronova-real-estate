@@ -17,11 +17,11 @@ zeronova-study.
 
 ```
 ZeroNovaRealEstate.Api/            Program, Supabase auth, [RequirePermission], GraphQL (Graphql/EstateResolvers.cs)
-ZeroNovaRealEstate.Application/    Features/{Properties,Parties,Requirements,Matching,Settings,Common}, interfaces
+ZeroNovaRealEstate.Application/    Features/{Properties,Parties,Requirements,Matching,Enquiries,Settings,Common}, interfaces
 ZeroNovaRealEstate.Domain/         Documents (re_* collections)
 ZeroNovaRealEstate.Infrastructure/ repositories, indexes, the hold sweep, installers
 ZeroNovaRealEstate.Models/         DTOs, inputs, enums, permissions (EstatePermissions), options, events
-ZeroNovaRealEstate.PubSub/         producers (agents' bells via zeronova-utility's dispatch)
+ZeroNovaRealEstate.PubSub/         producers (agents' bells, contacts and enquiries for zeronova-lead), the lead-enquiry consumer
 ZeroNovaRealEstate.Tests/          xUnit + Mongo2Go, the real handlers
 ```
 

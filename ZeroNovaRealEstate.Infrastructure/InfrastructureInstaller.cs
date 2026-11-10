@@ -24,7 +24,8 @@ public static class InfrastructureInstaller
 
         services.AddDomainInstaller();
         services.AddMongo(configuration);
-        // Producers (the agents' bells) from the PubSub assembly; the outbox and unit of work come from here.
+        // Producers (the agents' bells, contacts and enquiries for zeronova-lead) and the consumer of zeronova-lead's
+        // lead-enquiry-received, from the PubSub assembly; the outbox, inbox and unit of work come from here.
         services.AddZeroNovaMessaging(configuration, typeof(PubSubAssembly).Assembly);
 
         services.AddScoped<IPropertyRepository, PropertyRepository>();
@@ -46,6 +47,7 @@ public static class InfrastructureInstaller
         services.AddScoped<IPriceListRepository, PriceListRepository>();
         services.AddScoped<IPaymentPlanRepository, PaymentPlanRepository>();
         services.AddScoped<IWebsiteRepository, WebsiteRepository>();
+        services.AddScoped<IEnquiryRepository, EnquiryRepository>();
         services.AddHostedService<IndexInitializer>();
         // After the indexes (hosted services start in order): holds that ran out go back to available.
         services.AddHostedService<HoldReleaseJob>();

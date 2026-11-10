@@ -56,6 +56,21 @@ public interface IShareRepository : ICompanyRepositoryBase<ShareDocument>
 
     /// <summary>Counts an open.</summary>
     Task RecordOpenAsync(string shareId, string companyId, DateTime at, CancellationToken ct = default);
+
+    /// <summary>
+    /// Counts an enquiry from the share page unless <paramref name="perHour"/> came in the hour before <paramref name="at"/>
+    /// (one atomic update: the guard and the count cannot race). False = refused.
+    /// </summary>
+    Task<bool> TryRecordEnquiryAsync(string shareId, string companyId, DateTime at, int perHour, CancellationToken ct = default);
+}
+
+public interface IEnquiryRepository : ICompanyRepositoryBase<EnquiryDocument>
+{
+    /// <summary>
+    /// Writes the enquiry unless one with its <see cref="EnquiryDocument.Ref"/> is there already (a redelivery, or a
+    /// parallel delivery of the same event). True when written.
+    /// </summary>
+    Task<bool> AddIfNewAsync(EnquiryDocument enquiry, CancellationToken ct = default, string? companyId = null);
 }
 
 public interface IDealRepository : ICompanyRepositoryBase<DealDocument>;
@@ -98,6 +113,12 @@ public interface ICounterRepository : ICompanyRepositoryBase<CounterDocument>
 public interface IContactSyncProducer : IMessageProducer
 {
     Task PublishAsync(ContactUpsertRequestedEvent evt, CancellationToken ct = default);
+}
+
+/// <summary>An enquiry for zeronova-lead to record on a lead (D29): the share page's form and "Add enquiry".</summary>
+public interface ILeadCaptureProducer : IMessageProducer
+{
+    Task PublishAsync(LeadCapturedEnquiryEvent evt, string changedBy, CancellationToken ct = default);
 }
 
 /// <summary>A bell (and push when offline) for members, through zeronova-utility's dispatch.</summary>

@@ -406,7 +406,11 @@ public sealed record UnitTypeDto(
     string? Notes,
     UnitCountsDto Units,
     decimal? FromPrice,
-    decimal? GstPercent);
+    decimal? GstPercent)
+{
+    /// <summary>Enquiries on this unit type and its units (D30).</summary>
+    public ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto Enquiries { get; init; } = ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto.None;
+}
 
 public sealed record UnitTypeRateDto(string UnitTypeId, string? UnitTypeName, RateBasis Basis, decimal Rate, AreaBasis Area);
 
@@ -496,7 +500,11 @@ public sealed record ProjectDto(
     DateTimeOffset? CreatedAt,
     bool ShowOnWebsite = false,
     bool Featured = false,
-    string? WebsiteSlug = null);
+    string? WebsiteSlug = null)
+{
+    /// <summary>Enquiries on this project, its unit types and its units (D30).</summary>
+    public ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto Enquiries { get; init; } = ZeroNovaRealEstate.Models.Enquiries.EnquiryCountsDto.None;
+}
 
 /// <summary>A project in a list (and on the dashboard): what it is and its units by status.</summary>
 public sealed record ProjectSummaryDto(
@@ -594,7 +602,7 @@ public sealed record CostSheetDto(
 
 /// <summary>A link to send a project (its page: facts, media, brochure, unit types; never CP terms or unit numbers).</summary>
 public sealed record ProjectShareDto(string Id, string Token, string Url, string ProjectId, string? RequirementId, int Opens, DateTimeOffset? LastOpenedAt,
-    DateTimeOffset CreatedAt, string Message);
+    DateTimeOffset CreatedAt, string Message, int Enquiries = 0);
 
 /// <summary>A unit type on the shared page: its facts, how many are available, and its "from" price (null when on request).</summary>
 public sealed record SharedUnitTypeDto(

@@ -220,6 +220,36 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                 Builders<EstateSettingsDocument>.IndexKeys.Ascending(s => s.CompanyId), new CreateIndexOptions { Name = "company_unique", Unique = true }),
                 cancellationToken: ct);
 
+            // Enquiries (C1): one per capture (its ref), numbered once; the screen lists and buckets them by when they came,
+            // per agent, status, source and listing; a lead's and a contact's enquiries for the customer (C2).
+            var enquiries = database.GetCollection<EnquiryDocument>("re_enquiries");
+            var e = Builders<EnquiryDocument>.IndexKeys;
+            await enquiries.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<EnquiryDocument>(e.Ascending(x => x.CompanyId).Ascending(x => x.Ref),
+                    new CreateIndexOptions { Name = "company_ref_unique", Unique = true }),
+                new CreateIndexModel<EnquiryDocument>(e.Ascending(x => x.CompanyId).Ascending(x => x.Code),
+                    new CreateIndexOptions { Name = "company_code_unique", Unique = true }),
+                new CreateIndexModel<EnquiryDocument>(e.Ascending(x => x.CompanyId).Descending(x => x.OccurredAt),
+                    new CreateIndexOptions { Name = "company_occurred" }),
+                new CreateIndexModel<EnquiryDocument>(e.Ascending(x => x.CompanyId).Ascending(x => x.AgentId).Descending(x => x.OccurredAt),
+                    new CreateIndexOptions { Name = "company_agent_occurred" }),
+                new CreateIndexModel<EnquiryDocument>(e.Ascending(x => x.CompanyId).Ascending(x => x.Status).Descending(x => x.OccurredAt),
+                    new CreateIndexOptions { Name = "company_status_occurred" }),
+                new CreateIndexModel<EnquiryDocument>(e.Ascending(x => x.CompanyId).Ascending(x => x.Source).Descending(x => x.OccurredAt),
+                    new CreateIndexOptions { Name = "company_source_occurred" }),
+                new CreateIndexModel<EnquiryDocument>(e.Ascending(x => x.CompanyId).Ascending(x => x.PropertyId).Descending(x => x.OccurredAt),
+                    new CreateIndexOptions { Name = "company_property_occurred" }),
+                new CreateIndexModel<EnquiryDocument>(e.Ascending(x => x.CompanyId).Ascending(x => x.ProjectId).Descending(x => x.OccurredAt),
+                    new CreateIndexOptions { Name = "company_project_occurred" }),
+                new CreateIndexModel<EnquiryDocument>(e.Ascending(x => x.CompanyId).Ascending(x => x.UnitTypeId).Descending(x => x.OccurredAt),
+                    new CreateIndexOptions { Name = "company_unit_type_occurred" }),
+                new CreateIndexModel<EnquiryDocument>(e.Ascending(x => x.CompanyId).Ascending(x => x.LeadId),
+                    new CreateIndexOptions { Name = "company_lead" }),
+                new CreateIndexModel<EnquiryDocument>(e.Ascending(x => x.CompanyId).Ascending(x => x.ContactId),
+                    new CreateIndexOptions { Name = "company_contact" }),
+            ], ct);
+
             var counters = database.GetCollection<CounterDocument>("re_counters");
             await counters.Indexes.CreateOneAsync(new CreateIndexModel<CounterDocument>(
                 Builders<CounterDocument>.IndexKeys.Ascending(c => c.CompanyId).Ascending(c => c.Name),

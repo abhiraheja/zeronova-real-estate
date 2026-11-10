@@ -1,7 +1,9 @@
 using System.Text.Json;
 using Microsoft.Extensions.DependencyInjection;
+using MongoDB.Driver.Linq;
 using ZeroNova_Packages.MediatR.Interfaces;
 using ZeroNovaRealEstate.Application.Exceptions;
+using ZeroNovaRealEstate.Application.Interfaces;
 using ZeroNovaRealEstate.Application.Features.Parties;
 using ZeroNovaRealEstate.Application.Features.Projects;
 using ZeroNovaRealEstate.Application.Features.Properties;
@@ -19,7 +21,7 @@ namespace ZeroNovaRealEstate.Tests;
 /// <summary>
 /// The Real Estate website's listings (cms doc 06 §12, E2): the website code (made on first ask, unique across companies),
 /// Show on website and Featured, slugs made once, the anonymous queries by code with the design's filters, what is
-/// listed (website on, the flag, available or on hold, never a unit on its own), a sold property's page, unit-type
+/// listed (website on, the flag, available or on hold, not stale, never a unit on its own), a sold property's page, unit-type
 /// availability, and that owners, unit numbers, notes and CP terms never reach the website.
 /// </summary>
 [Collection(MongoCollection.Name)]
@@ -234,6 +236,40 @@ public sealed class WebsiteTests(MongoFixture mongo) : IAsyncLifetime
         var settings = await host.SendAs(CompanyA, new GetEstateWebsiteSettingsQuery());
         Assert.Equal((false, 2, 1), (settings.Enabled, settings.ListedProperties, settings.ListedProjects));
     }
+
+    [Fact]
+    public async Task A_stale_property_is_not_on_the_website_until_it_is_confirmed_again()
+    {
+        var code = await WebsiteOn();
+        var fresh = await Add(Flat("Sector 70"));
+        var stale = await Add(Flat("Sector 71"));
+        var shop = await Add(Shop());
+        await Backdate(stale.Id, 31);   // past the 30 days for sale
+        await Backdate(shop.Id, 16);    // past the 15 days for rent
+        var keptShop = await Add(Shop());
+        await Backdate(keptShop.Id, 14);
+
+        var page = await Public(new GetEstateWebsitePropertiesQuery(code, new(), EstateWebsitePropertySort.Newest, 1, 12));
+        Assert.Equal([keptShop.Code, fresh.Code], page.Items.Select(i => i.Code));
+        Assert.Equal(2, (await Public(new GetEstateWebsiteQuery(code))).Properties);
+        Assert.Equal(2, (await host.SendAs(CompanyA, new GetEstateWebsiteSettingsQuery())).ListedProperties);
+        var gone = await Public(new GetEstateWebsitePropertyQuery(code, stale.WebsiteSlug!));
+        Assert.Equal((EstateWebsiteListingState.NoLongerAvailable, (EstateWebsitePropertyDto?)null), (gone.State, gone.Property));
+        Assert.DoesNotContain(gone.Similar, s => s.Code == shop.Code);
+        Assert.True((await host.SendAs(CompanyA, new GetPropertyQuery(stale.Id))).ShowOnWebsite);   // the flag stays; only the listing waits
+
+        await host.SendAs(CompanyA, new ConfirmPropertyCommand(stale.Id, new ConfirmPropertyInput(PropertyStatus.Available, null, ConfirmedVia.Call, null)));
+        Assert.Equal(EstateWebsiteListingState.Listed, (await Public(new GetEstateWebsitePropertyQuery(code, stale.WebsiteSlug!))).State);
+        Assert.Equal(3, (await Public(new GetEstateWebsitePropertiesQuery(code, new(), EstateWebsitePropertySort.Newest, 1, 12))).TotalCount);
+    }
+
+    private Task Backdate(string propertyId, int days) => host.WithAsync(CompanyA, async sp =>
+    {
+        var repo = sp.GetRequiredService<IPropertyRepository>();
+        var doc = await repo.GetDocument(propertyId).FirstAsync();
+        doc.LastConfirmedAt = DateTime.UtcNow.AddDays(-days);
+        await repo.UpdateAsync(doc);
+    });
 
     [Fact]
     public async Task The_website_names_the_company_as_share_pages_do_with_the_cities_and_localities_in_use()

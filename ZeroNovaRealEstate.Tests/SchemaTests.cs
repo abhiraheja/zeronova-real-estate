@@ -44,6 +44,11 @@ public sealed class SchemaTests
             "ZeroNova_estateWebsiteProperty(", "ZeroNova_estateWebsiteProjects(", "ZeroNova_estateWebsiteProject(",
             "showOnWebsite: Boolean", "websiteSlug: String", "FEW_LEFT", "NO_LONGER_AVAILABLE", "EstateWebsitePropertyFilterInput",
             "PER_FLOOR_ABOVE", "ON_AGREEMENT", "FARMHOUSE", "availableInGroup: Int",
+            "ZeroNova_estateEnquiries(", "ZeroNova_estateEnquiry(", "ZeroNova_estateEnquiryByRef(", "ZeroNova_estateEnquiryStats(",
+            "ZeroNova_enquireEstateShare(", "ZeroNova_addEstateEnquiry(", "ZeroNova_updateEstateEnquiry(",
+            "EnquiryFilterInput", "AddEnquiryInput", "UpdateEnquiryInput", "WEBSITE_FORM", "SHARE_PAGE", "WALK_IN", "AI_OFFICE", "REQUIREMENT_ADDED",
+            "VISIT_BOOKED", "NOT_AVAILABLE", "UNREACHABLE", "enquiries: EnquiryCountsDto!", "last7Days: Int!", "bySource: [EnquirySourceCountDto!]!",
+            "enquiriesToday: Int!", "enquiriesThisWeek: Int!", "openEnquiries: Int!", "enquiryId: String", "wanted: String",
             "BUILDER_FLOOR", "NORTH_EAST", "SQ_YD", "MARLA", "price: Decimal", "sizeSqFt: Decimal",
         })
             Assert.Contains(field, sdl);

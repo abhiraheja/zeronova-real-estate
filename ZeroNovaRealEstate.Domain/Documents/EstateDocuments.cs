@@ -223,6 +223,14 @@ public sealed class ShareDocument : CompanyDocumentBase
     [BsonElement("createdAt")] public DateTime CreatedAt { get; set; }
     [BsonElement("opens")] public int Opens { get; set; }
     [BsonElement("lastOpenedAt")] public DateTime? LastOpenedAt { get; set; }
+
+    /// <summary>Enquiries sent from the page's "Enquire" form (C1).</summary>
+    [BsonElement("enquiries")] public int Enquiries { get; set; }
+
+    [BsonElement("lastEnquiryAt")] public DateTime? LastEnquiryAt { get; set; }
+
+    /// <summary>When the enquiries of the last hour came — the per-link guard (<c>Share:EnquiriesPerHour</c>).</summary>
+    [BsonElement("recentEnquiries")] public List<DateTime> RecentEnquiries { get; set; } = [];
 }
 
 public sealed class DealPaymentModel

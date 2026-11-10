@@ -46,6 +46,8 @@ public static class ApplicationInstaller
         // Projects (design 7): projects as members see them, and units kept in step with their type, project and price list.
         services.AddScoped<Features.Projects.ProjectMapper>();
         services.AddScoped<Features.Projects.ProjectUnitSync>();
+        // Enquiries (C1): counts on properties, projects and unit types.
+        services.AddScoped<Features.Enquiries.EnquiryCounts>();
 
         return services;
     }

@@ -122,7 +122,7 @@ internal static class ProjectShareMapping
         var message = $"Namaste {leadName ?? "ji"}, here is a project for you: {p.Name}, {p.Locality}{from}\nPhotos, brochure and details: {url}";
         return new ProjectShareDto(s.Id, s.Token, url, p.Id, s.RequirementId, s.Opens,
             s.LastOpenedAt is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null,
-            new DateTimeOffset(DateTime.SpecifyKind(s.CreatedAt, DateTimeKind.Utc)), message);
+            new DateTimeOffset(DateTime.SpecifyKind(s.CreatedAt, DateTimeKind.Utc)), message, s.Enquiries);
     }
 
     /// <summary>The lowest price of an available unit whose type does not hide its price.</summary>

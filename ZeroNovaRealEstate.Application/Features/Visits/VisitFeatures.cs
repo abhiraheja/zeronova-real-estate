@@ -37,7 +37,7 @@ public sealed class ScheduleVisitValidator : AbstractValidator<ScheduleVisitComm
 }
 
 public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepository properties, IProjectRepository projects, IRequirementRepository requirements,
-    VisitMapper mapper, EstateScope scope, TimeProvider clock)
+    VisitMapper mapper, EstateScope scope, TimeProvider clock, IEnquiryRepository enquiries)
     : IRequestHandler<ScheduleVisitCommand, VisitDto>
 {
     public async Task<VisitDto> Handle(ScheduleVisitCommand request, CancellationToken ct)
@@ -66,6 +66,8 @@ public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepos
         var agent = EstateText.Clean(input.AgentId) ?? scope.UserId;
         if (agent != scope.UserId && !scope.SeesAllRequirements)
             throw new ValidatorException("Only a manager can give a visit to another agent.");
+        // Booked from an enquiry (D31): the caller's to work, and the same customer.
+        var enquiry = await Enquiries.EnquiryLinks.ForLinkAsync(enquiries, scope, input.EnquiryId, input.LeadId.Trim(), ct);
 
         var visit = new VisitDocument
         {
@@ -74,6 +76,11 @@ public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepos
             MeetingPoint = EstateText.Clean(input.MeetingPoint), Notes = EstateText.Clean(input.Notes),
         };
         await visits.AddAsync(visit, ct);
+        if (enquiry is not null)
+        {
+            Enquiries.EnquiryLinks.ToVisit(enquiry, visit.Id, clock.GetUtcNow().UtcDateTime);
+            await enquiries.UpdateAsync(enquiry, ct);
+        }
         return await mapper.OneAsync(visit, ct);
     }
 }
@@ -378,7 +385,7 @@ internal static class ShareMapping
         var message = $"Namaste {leadName ?? "ji"}, here is a property for you: {p.Title}{price}\nPhotos and details: {url}";
         return new ShareDto(s.Id, s.Token, url, p.Id, s.RequirementId, s.Opens,
             s.LastOpenedAt is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null,
-            new DateTimeOffset(DateTime.SpecifyKind(s.CreatedAt, DateTimeKind.Utc)), message);
+            new DateTimeOffset(DateTime.SpecifyKind(s.CreatedAt, DateTimeKind.Utc)), message, s.Enquiries);
     }
 
     /// <summary>A project unit whose type is "price on request" (D22) shows no price to a customer.</summary>

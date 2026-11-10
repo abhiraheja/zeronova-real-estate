@@ -38,6 +38,9 @@ public sealed class VisitInput
     public DateTimeOffset At { get; init; }
     public string? MeetingPoint { get; init; }
     public string? Notes { get; init; }
+
+    /// <summary>The enquiry this visit answers (D31): it becomes "visit booked" and links here.</summary>
+    public string? EnquiryId { get; init; }
 }
 
 public sealed record VisitResultInput(VisitStatus Status, VisitOutcome? Outcome, string? Feedback);
@@ -69,7 +72,7 @@ public sealed record VisitDto(
 
 /// <summary>A link to send a property to a customer (M2): a page with photos and details, never the owner or the unit number.</summary>
 public sealed record ShareDto(string Id, string Token, string Url, string PropertyId, string? RequirementId, int Opens, DateTimeOffset? LastOpenedAt,
-    DateTimeOffset CreatedAt, string Message);
+    DateTimeOffset CreatedAt, string Message, int Enquiries = 0);
 
 /// <summary>What the customer sees on the shared page.</summary>
 public sealed record SharedPropertyDto(

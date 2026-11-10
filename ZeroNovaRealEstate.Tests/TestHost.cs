@@ -47,6 +47,9 @@ public sealed class TestHost : IAsyncDisposable
     /// <summary>The people this service asked zeronova-lead to put into the contact book.</summary>
     public FakeContacts Contacts { get; } = new();
 
+    /// <summary>The enquiries this service asked zeronova-lead to record (share page, "Add enquiry").</summary>
+    public FakeCaptures Captures { get; } = new();
+
     /// <param name="encryptionKey">Null = Core's master key not set up.</param>
     public TestHost(MongoFixture mongo, string? encryptionKey = "default")
     {
@@ -71,6 +74,8 @@ public sealed class TestHost : IAsyncDisposable
         services.AddSingleton<IAgentNotificationProducer>(Bells);
         services.RemoveAll<IContactSyncProducer>();
         services.AddSingleton<IContactSyncProducer>(Contacts);
+        services.RemoveAll<ILeadCaptureProducer>();
+        services.AddSingleton<ILeadCaptureProducer>(Captures);
         provider = services.BuildServiceProvider();
     }
 
@@ -116,6 +121,10 @@ public sealed class TestHost : IAsyncDisposable
         await work(scope.ServiceProvider);
     }
 
+    /// <summary>Delivers a message to its handlers as the consumer does: nobody signed in.</summary>
+    public Task PublishAsync<T>(T notification) where T : INotification =>
+        RunAsJobAsync(sp => sp.GetRequiredService<IMediator>().Publish(notification));
+
     public async Task EnsureIndexesAsync()
     {
         foreach (var service in provider.GetServices<IHostedService>().OfType<IndexInitializer>())
@@ -143,6 +152,19 @@ public sealed class FakeContacts : IContactSyncProducer
     public Task PublishAsync(ContactUpsertRequestedEvent evt, CancellationToken ct = default)
     {
         Sent.Enqueue(evt);
+        return Task.CompletedTask;
+    }
+
+    public Task<bool> CancelScheduledAsync(string messageId, CancellationToken ct = default) => Task.FromResult(false);
+}
+
+public sealed class FakeCaptures : ILeadCaptureProducer
+{
+    public ConcurrentQueue<(LeadCapturedEnquiryEvent Event, string ChangedBy)> Sent { get; } = new();
+
+    public Task PublishAsync(LeadCapturedEnquiryEvent evt, string changedBy, CancellationToken ct = default)
+    {
+        Sent.Enqueue((evt, changedBy));
         return Task.CompletedTask;
     }
 

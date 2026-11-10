@@ -1,0 +1,81 @@
+# Real Estate — enquiries, customers, unmet demand, video and agreement fixes (section 8)
+
+**Status:** design, 2026-11-10. Continues `real-estate-design.md` (D1–D26) with D27–D40. **C1 built 2026-11-10
+(backend; the app's Enquiries screen is not):** `re_enquiries` from zeronova-lead's `lead-enquiry-received`
+(subscription `zeronova-real-estate.lead-enquiry-sub` on `lead-lifecycle`), the share page's `ZeroNova_enquireEstateShare`,
+staff `ZeroNova_addEstateEnquiry` (+ `ZeroNova_estateEnquiryByRef` to poll), `ZeroNova_updateEstateEnquiry`,
+`ZeroNova_estateEnquiries` / `ZeroNova_estateEnquiry` / `ZeroNova_estateEnquiryStats`, `enquiries {total, last7Days,
+last30Days, bySource}` on properties, projects and unit types, the dashboard's enquiry counts, `enquiryId` on requirement
+and visit inputs; and (E2 tweak, owner 2026-11-10) stale properties are off the website. What C1 does differently from
+the text below:
+
+- **One capture event.** The share page and "Add enquiry" both send zeronova-lead's generic `lead-captured-enquiry`
+  (topic `lead-captured`; `LeadSource` Website / ManualCall / Manual / WhatsApp), not `lead-captured-website` (D29).
+  `ExternalRef` = `estate:{id}`, the dedup key both ways. The share page sends no lead id: the person is found by phone,
+  so a forwarded link reaches whoever enquires.
+- **Which events are Real Estate's** (conservative): metadata `product = REAL_ESTATE`, or `estate = "1"` (our own
+  captures), or a `propertyId` / `projectId` / `unitTypeId`, or a form only the Real Estate website has (`site-visit`,
+  `post-property`, `requirement`, `project-enquiry`) while the company's Real Estate website is on. A generic contact or
+  call-back form counts only with the product or a listing id — zeronova-cms still sends the listing title as
+  `product` (its D29 fix is pending). Idempotent on the external ref, else the lead's activity id.
+- **Listing by id, slug or code**: the website does not see our ids, so `propertyId` / `projectId` may be a slug or a
+  code; one not found is kept as an extra field and the title falls back to the form's `product`. A unit brings its
+  project and unit type.
+- **Our captures carry more metadata**: `estateSource` (Call, WalkIn, WhatsApp, Other — "Manual" alone cannot tell walk-in
+  from other), `agentId` / `agentName` (the agent who took it, or the shared requirement's agent; wins over the lead's
+  owner, so the agent sees the enquiry they added even on another agent's lead), `requirementId` (linked only when the
+  enquiry reached that requirement's lead; the status stays New).
+- **Agent scope** (D39): an enquiry is the agent's whose id it carries; an unassigned one (lead with no owner) is seen
+  only with PRQV, and a manager can give it to an agent (`agentId` on the update).
+- **Counts** on listings are the whole company's (every member sees the whole stock, D15), spam left out; a project
+  counts its unit types' and units' enquiries, a unit type its units'. One grouped query per kind per mapping. The
+  dashboard's (today, this week, open) follow the agent scope.
+- **Stats** take India dates (`from`, `to`, yyyy-MM-dd, both included) widened to whole buckets (a week from Monday, a
+  month from the 1st), at most 400 buckets; open / closed is the enquiries' status now; spam is counted (it is in the list).
+- **Share-page guard**: 5 enquiries per link per rolling hour (`Share:EnquiriesPerHour`), one atomic update on the
+  share, which also counts them (`enquiries` on the share DTOs). The count is written before the capture is queued (no
+  unit of work), so a failed queue may over-count by one. Rate limiting proper stays the owner's T00b.
+- **Closing** keeps `wanted` for not available (C3 makes it a watched requirement) and a note; reopening clears them.
+  Requirement added / visit booked need the link first; a closed enquiry only takes a link.
+
+**Why:** the owner (2026-11-10): every listing is managed in the Real Estate app; each property and project shows how
+many enquiries it got; an Enquiries screen shows them day, week and month wise; a **customer** has a dashboard like a
+Tutor student (every enquiry, how far the lead went, what they asked for and did not get); when a customer's request
+could not be met and was closed, a matching property arriving later **highlights the customer** and one click tells
+them it is available; property videos up to **2 minutes**; agreements for every final sale or rent.
+
+The owner chose (2026-11-10): the customer stays the contact / lead in zeronova-lead (D3), with the dashboard in Real
+Estate; enquiries count from the website forms, the share pages, WhatsApp / the AI office and staff (call, walk-in);
+unmet demand is caught from requirements with no match, requirements closed as "not available", enquiries closed as
+"not available", and website searches with no result.
+
+## 8.1 What exists today (zeronova-lead, read 2026-11-10)
+
+- A website form reaches zeronova-lead as `lead-captured-website` (topic `lead-captured`). The lead is found by phone
+  or email; an open lead is reused and the enquiry becomes one `WebsiteForm` activity (dedup key = the CMS enquiry id);
+  a Won/Lost last lead gets a new lead. **The form's `propertyId`, `projectId`, extra fields and page URL are dropped.**
+- `lead-lifecycle` events (`lead-created`, `lead-status-changed`, …) carry lead id, contact id, status, channel,
+  product and form — **no property or project, and nothing at all for a repeat enquiry on an open lead.**
+- Lead statuses New, Contacted, Interested, FollowUp, Won, Lost; working status; lost reasons from settings; no won
+  reason (a note). One open lead per contact. No query lists a contact's past leads or a contact's activities.
+- Website-created contacts are tagged "Manual"; a customer-tagged Buyer/Owner filling a form still opens a lead.
+- Email and call channels create no leads today.
+
+## 8.2 Decisions
+
+| # | Topic | Decision |
+|---|---|---|
+| D27 | Enquiry | A Real Estate **enquiry** is one person asking about something: a property, a project (and unit type), or a general need. Kept in **`re_enquiries`**: code `E-0001`, when, **source** (website form — which form; share page; WhatsApp; AI office; call; walk-in; portal later), lead id, contact id, name and phone (as the lead has them), property / project / unit type, message, the form's extra fields (budget, BHK, slot), agent (the lead's owner), **status** (new → contacted → requirement added / visit booked → closed), close reason |
+| D28 | One road in | Every enquiry reaches Real Estate **through zeronova-lead**, so the lead and the enquiry always agree: zeronova-lead keeps the capture's metadata on the activity and publishes a new **`lead-enquiry-received`** on `lead-lifecycle` for **every** captured enquiry — new lead or repeat — with lead id, contact id, channel, form, `product`, the metadata (propertyId, projectId, unitTypeId, enquiry ref, page URL, extra fields) and whether the lead is new. Real Estate consumes the events whose metadata says `product: REAL_ESTATE` (or carries a property / project id) into `re_enquiries` (idempotent on the enquiry ref) |
+| D29 | Sources into the road | **Website:** zeronova-cms already sends; it sends `product: REAL_ESTATE` and the listing title separately (fix in cms). **Share page:** a public "Enquire" form on `/p/:token` and `/pj/:token` (name, phone, message) — Real Estate publishes `lead-captured-website` with the share's property/project and requirement. **Staff:** "Add enquiry" in the app (lead picker or new name + phone; property/project; source call / walk-in / WhatsApp) creates or finds the lead through zeronova-lead and records the enquiry. **AI office:** an office tool "record enquiry" (property code or project) for WhatsApp conversations — the same staff mutation, called by the office. **Portals:** later (M5) on the same road |
+| D30 | Counts | Each property, project and unit type shows **enquiries: total, last 7 / 30 days, by source**, and its list. The **Enquiries** screen: list with filters (source, status, property, project, agent, date) and **day / week / month** views (counts per bucket, by source, open vs closed); agents see their own, `PRQV` everyone's (D15) |
+| D31 | Working an enquiry | From an enquiry: call / WhatsApp, **add requirement** (prefilled from the enquiry), book a visit, share matching properties, or **close with a reason**: not available (with what was wanted — becomes a watched requirement, D33), not interested, unreachable, duplicate, spam, converted. Closing never closes the lead; the lead keeps its own status |
+| D32 | Customer | A **customer** is a zeronova-lead contact with anything in Real Estate (an enquiry, a requirement, a party record, a visit, a deal or a tenancy). **Customers** list (search, filters: has open requirement, highlighted, agent, last activity) and a **customer dashboard**: the contact and current lead (status, working status, owner, classification), **lead history** (every lead with its status and won/lost reason), **enquiries** timeline, **requirements** (active, closed — with reasons, watched), **matches** (new, shown, interested, rejected), shares sent and opened, site visits and feedback, deals and payments, tenancies and rent, owned properties (as owner), and **unmet demand** (what they asked for and did not get). Numbers on top: enquiries, requirements, visits, deals, days since last contact |
+| D33 | Watched demand ("mila nahi") | Closing a requirement or enquiry as **not available** keeps the need as a **watched requirement** (status `Watching`, until a date — default 90 days, the dealer's setting). Matching includes watched requirements. A new fit marks the match **revived**: the customer is **highlighted** in Customers and on the dashboard, the agent gets a bell, and **one click sends** the customer "this property is now available" — a WhatsApp template through zeronova-social when the company's WhatsApp is connected, else the ready wa.me message (M2). Sending marks the match shown; the customer's reply comes back as a new enquiry |
+| D34 | Demand report | **Unmet demand** report: watched and unmatched requirements, enquiries closed "not available", and **website searches with no result** (E2 logs the filters and the day — never who searched), grouped by locality, type, BHK and budget band, so the dealer knows what to source |
+| D35 | zeronova-lead changes | Keep the capture metadata on the activity; publish `lead-enquiry-received`; GraphQL **leads of a contact** (all, with status and reasons) and **activities of a contact**; tag website-created contacts `Website`; a won reason field (Real Estate already sends one). No Real Estate concepts inside zeronova-lead — the metadata is opaque to it |
+| D36 | Property video | A property and a project each take **videos up to 2 minutes** (a few per listing), uploaded from the app to **zeronova-media** (Real Estate is a new media client): encoded to HLS with a poster; over 120 seconds is refused at upload and checked again on `video-ready`. The app, the share page and the website play it through a short playback grant asked by Real Estate (never a raw URL). The existing video link field stays for YouTube |
+| D37 | Agreements: what is added | Built today: Agreement to Sell (Format A, Format B), biana receipt, 11-month rent agreement, the dealer's own Word templates. **Add:** commercial lease (lock-in, yearly escalation, fit-out period, security deposit), registered lease (over 11 months), and for project units (P2) the allotment letter and builder-buyer agreement (RERA Form Q style) |
+| D38 | Compliance fixes (built features) | From the 2026-11-10 workflow research: property TDS is **s.393(1) of the Income-tax Act 2025** from 1 Apr 2026 (194-IA before), at ₹50 lakh **or more** counted over the whole deal, on every instalment, 20% without PAN; an **NRI seller** is s.195 with TAN and Form 27Q, not 1%; brokerage TDS (old 194H, now s.393(1)) generally does not apply when the payer is an individual; **Haryana caps brokerage at 1%** (½ + ½); GMADA transfers follow **NDC → sale permission → registry → re-transfer → mutation**, plus LOI transfer (2.5% fee), Chandigarh leasehold (Estate Office permission + unearned increase) and freehold kinds; **GPA** holding carries a "no title" warning; rentals get **police verification** and, in Chandigarh, **Rent Authority intimation within 2 months** with the UIN; parties get **resident / NRI / OCI**, and an NRI or OCI buyer on agricultural land or a farmhouse is warned (FEMA) |
+| D39 | Permissions | Enquiries follow requirements: `PRQM` works one's own, `PRQV` sees everyone's. Customers: `PRQM`/`PRQV` the same way, plus zeronova-lead's own `LEDV` for lead history. Video upload: `PPRM` (property) / `PPJM` (project). No new codes |
+| D40 | Order | **C1** zeronova-lead changes (D35) + Real Estate enquiries from the event, the share-page form, staff "Add enquiry", counts on property/project, the Enquiries screen. **C2** customers list and dashboard. **C3** watched demand, revived matches, one-click message, the unmet-demand report (with E2's empty-search log). **C4** video (zeronova-media client). **C5** compliance fixes and the new agreement templates. **C6** the AI office "record enquiry" tool. Each slice: backend + app + tests |

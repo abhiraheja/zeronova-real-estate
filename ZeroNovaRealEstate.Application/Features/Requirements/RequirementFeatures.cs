@@ -32,13 +32,15 @@ public sealed class SaveRequirementValidator : AbstractValidator<SaveRequirement
 
 public sealed class SaveRequirementHandler(
     IRequirementRepository requirements, IEstateSettingsRepository settings, ILocalityRepository localities, IMatchRepository matches,
-    MatchEngine engine, EstateScope scope)
+    MatchEngine engine, EstateScope scope, IEnquiryRepository enquiries, TimeProvider clock)
     : IRequestHandler<SaveRequirementCommand, RequirementDto>
 {
     public async Task<RequirementDto> Handle(SaveRequirementCommand request, CancellationToken ct)
     {
         var input = request.Input;
         var s = await EstateSettings.LoadAsync(settings, ct);
+        // Made from an enquiry (D31): the caller's to work, and the same customer.
+        var enquiry = await Enquiries.EnquiryLinks.ForLinkAsync(enquiries, scope, input.EnquiryId, input.LeadId.Trim(), ct);
         RequirementDocument requirement;
         if (string.IsNullOrEmpty(request.RequirementId))
             requirement = new RequirementDocument { Id = requirements.GetNewId, LeadId = string.Empty, AgentId = scope.UserId };
@@ -82,6 +84,12 @@ public sealed class SaveRequirementHandler(
             await requirements.UpdateAsync(requirement, ct);
         foreach (var locality in requirement.Localities)
             await localities.EnsureAsync(locality, EstateText.Key(locality), requirement.City, ct);
+
+        if (enquiry is not null)
+        {
+            Enquiries.EnquiryLinks.ToRequirement(enquiry, requirement.Id, clock.GetUtcNow().UtcDateTime);
+            await enquiries.UpdateAsync(enquiry, ct);
+        }
 
         await engine.ForRequirementAsync(requirement, ct);
         return await RequirementMapping.ToDtoAsync(requirement, matches, ct);
