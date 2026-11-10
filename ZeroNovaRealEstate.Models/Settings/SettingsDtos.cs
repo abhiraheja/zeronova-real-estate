@@ -67,7 +67,10 @@ public sealed record CustomFieldInput(
 /// <summary>A sector, colony or society name the dealer has used, for typing it the same way again.</summary>
 public sealed record LocalityDto(string Name, string? City, int Properties);
 
-/// <summary>The Real Estate dashboard (design 3, M1): counts, then the newest matches and the oldest stale properties.</summary>
+/// <summary>
+/// The Real Estate dashboard (design 3, M1): counts over the dealer's own stock (project units left out), the newest
+/// matches, the oldest stale properties, and each project's units by status (design 7).
+/// </summary>
 public sealed record EstateDashboardDto(
     int AvailableForSale,
     int AvailableForRent,
@@ -76,4 +79,5 @@ public sealed record EstateDashboardDto(
     int NewMatches,
     int AddedThisWeek,
     IReadOnlyList<MatchDto> LatestMatches,
-    IReadOnlyList<PropertyDto> OldestStale);
+    IReadOnlyList<PropertyDto> OldestStale,
+    IReadOnlyList<ZeroNovaRealEstate.Models.Projects.ProjectSummaryDto> Projects);

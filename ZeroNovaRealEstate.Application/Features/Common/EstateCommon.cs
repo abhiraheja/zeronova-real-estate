@@ -133,8 +133,16 @@ public static class EstateSettings
     public static async Task<EstateSettingsDocument> LoadAsync(IEstateSettingsRepository settings, CancellationToken ct, string? companyId = null) =>
         await settings.GetDocuments(false, companyId).FirstOrDefaultAsync(ct) ?? new EstateSettingsDocument { Id = string.Empty };
 
-    /// <summary>Available or on hold, and not confirmed within the dealer's days for its purpose (D6).</summary>
+    /// <summary>
+    /// Available or on hold, and not confirmed within the dealer's days for its purpose (D6). A project unit is never
+    /// stale on its own (D21): an own project is always fresh, a partner project is confirmed as a whole.
+    /// </summary>
     public static bool IsStale(PropertyDocument p, EstateSettingsDocument s, DateTime utcNow) =>
-        p.Status is PropertyStatus.Available or PropertyStatus.OnHold
+        p.ProjectId is null
+        && p.Status is PropertyStatus.Available or PropertyStatus.OnHold
         && p.LastConfirmedAt < utcNow.AddDays(-(p.Purpose == PropertyPurpose.Rent ? s.RentFreshDays : s.SaleFreshDays));
+
+    /// <summary>A partner project not confirmed with its builder within the dealer's sale freshness days (D21); an own one never.</summary>
+    public static bool IsStale(ProjectDocument project, EstateSettingsDocument s, DateTime utcNow) =>
+        project.Kind == Models.Projects.ProjectKind.Partner && project.LastConfirmedAt < utcNow.AddDays(-s.SaleFreshDays);
 }

@@ -15,7 +15,7 @@ builders; the dealer's daily problem is managing properties, finding them, keepi
 customer who came when the right property was not there yet; agreements must be made ready, **in Word, always
 editable**; owners and buyers can each be several people.
 
-Contents: 1 components · 2 decisions · 3 build order · 4 M1 in detail · 5 later phases · 6 open items.
+Contents: 1 components · 2 decisions · 3 build order · 4 M1 in detail · 5 later phases · 6 open items · 7 projects.
 
 ## 1. Components
 
@@ -36,7 +36,7 @@ Contents: 1 components · 2 decisions · 3 build order · 4 M1 in detail · 5 la
 
 | # | Topic | Decision |
 |---|---|---|
-| D1 | Who it is for | **Property dealers**: resale and rental, residential and commercial, plots and built property. Builders, project inventory and channel partners are out |
+| D1 | Who it is for | **Property dealers**: resale and rental, residential and commercial, plots and built property. *Changed 2026-11-10 (owner):* **builders and projects are in** — a builder's own projects and a dealer's channel-partner projects (section 7, D17–D26) |
 | D2 | Where | **A new service, `zeronova-real-estate`**; GraphQL through the graph gateway as subgraph `RealEstate`; the app's own library `@zeronova/real-estate` and a **Real Estate** sidebar section (like Tutor) |
 | D3 | Customers | **Leads stay in zeronova-lead.** A requirement belongs to a lead; "Add requirement" sits on the lead page. A walk-in typed into Real Estate creates the lead first |
 | D4 | Property fields | **Three layers:** fields every property has; fields by type (plot, flat, builder floor, house/kothi, villa, shop, office, showroom, warehouse, agricultural land, PG); the **dealer's own fields** (text, number, yes/no, choice) added in settings (section 4.2) |
@@ -182,3 +182,95 @@ newest, price, size or last confirmed. Natural-language search ("3 bhk sector 70
 2. Owner history (D8): optional chain as proposed — confirm.
 3. Rentals depth (M4): rent reminders and receipts as proposed, or rent collection online too?
 4. Portal leads (M5): reading the portals' lead emails, or waiting for a paid connector?
+5. Projects (section 7): check the price list, payment plan and booking form against a real builder's papers
+   (WorldPro's Aetro Sapphire) before P2.
+
+## 7. Projects — builders and channel partners (P1–P3)
+
+**Status:** P1 built in this service (2026-11-10; not yet deployed): projects, unit types, generated units, the board
+and statuses, versioned price lists and the cost sheet, payment plans and milestones, construction updates, the
+project share page, matching by unit type, project site visits and projects on the dashboard, with `PPJM` in Core. The
+app's Projects screens are next (the SDL is regenerated). Changes from the draft while building:
+- **Legal rules (2026-11-10):** GST % on the unit type, over the project's; an "OC received" date on the project takes
+  GST off unsold units; every cost sheet gives the carpet area and the basic and total price per sq ft of carpet
+  (RERA prices on carpet area); a payment-plan step can fall due "on agreement for sale", and more than 10% before it
+  comes back as a warning on the plan and the schedule (RERA s.13), never a refusal; an own project is shared only with
+  a RERA registration or marked "RERA not required" with the reason (RERA s.3). `Farmhouse` joins the property types.
+- **Matching:** the match's available count is the units of the type that *fit* the requirement; a stale partner
+  project (past the sale freshness days since it was confirmed) is not matched until it is confirmed again.
+- **Prices:** the newest price-list version prices the units at once (its effective-from date is recorded, not waited
+  for); booked and sold units keep the price they were taken at. A plan's percents are of what is left after its
+  fixed amounts and total 100%; the last percent step takes the rounding.
+- **Units:** changed only through the project (`saveEstateUnit`, `setEstateUnitStatus`); `saveEstateProperty` and
+  `confirmEstateProperty` refuse a unit, and removing one needs `PPJM` and no booking. A unit shows the project's photos
+  and its type's floor plan; the dealer's own stock counts on the dashboard leave units out.
+- **Media:** like property photos — the app uploads to document-helper's public bucket (PDFs are allowed, up to
+  50 MB) and saves the key and address.
+- **Added:** `estateProjectShares`, `deleteEstateConstructionUpdate`, `estateVisits(projectId)`; a project link is
+  `{BaseUrl}/pj/{token}`.
+
+**Why (2026-11-10):** the first Real Estate website client, WorldPro Township (Chandigarh), is a **builder**: Aetro
+Sapphire at Sunam (commercial, RERA PBRERA-SGR78-PC0365, 50 built-up showrooms, 12,487 sq yd), farmhouses, and group
+housing / plotted / industrial projects planned. The market research of 2026-11-10 found builder CRMs (Sell.Do,
+Farvision, Propacity) built around project → tower → unit inventory, price lists, payment plans and channel partners
+(CPs), with about a third of new-home bookings coming through CPs. The owner chose (2026-11-10): **both** a builder's
+own projects and a dealer's CP projects in one record; **every unit tracked on its own**; **inventory first**, booking
+later.
+
+### 7.1 Decisions
+
+| # | Topic | Decision |
+|---|---|---|
+| D17 | One record for both | A **project** is either **own** (the company is the builder) or **partner** (another builder's project the company sells as a channel partner: builder name and contact, the CP terms). Everything else is the same |
+| D18 | Units are properties | **Every unit is a property** (`re_properties`) with `projectId`, `unitTypeId`, tower, floor and unit number. Share links, site visits, deals, agreements, brokerage and rentals work on a unit unchanged. A unit takes its type's fields (type, BHK, areas, bathrooms, balconies) and the project's (city, locality, society = project name, amenities, construction status, possession date) when made, and keeps them in step when the type or project changes; facing, corner, park facing, road width, floor and notes are its own |
+| D19 | Making units | Units are **generated** from a unit type: a tower (or phase/block), floors from–to, units per floor, and a numbering pattern (`{tower}-{floor}{nn}`, `SCO-{n}`, `Plot {n}` from a start number); or added one at a time. A unit number is never made twice in a project |
+| D20 | Unit status | The property statuses in builder words: **Available**, **Blocked** (= on hold, for a lead, until a date; the hold sweep releases it), **Booked** (= token received), **Sold**, **Withdrawn**. The **unit board** shows a project's units by tower and floor, coloured by status, with counts |
+| D21 | Freshness | A unit is never stale on its own. An **own** project's units are always fresh; a **partner** project is confirmed as a whole ("inventory checked with the builder"), which stamps all its units |
+| D22 | Price list | One **price list per project**, in versions (effective from; old versions kept). Per unit type: a **base rate** (per sq ft, per sq yd, or a lump sum) on a chosen area (super, built-up, carpet or plot). **Charges** (PLC, floor rise, EDC/IDC, parking, club, power backup …): fixed, per area, or % of base; mandatory or optional; when it applies (always, corner, park facing, floors from–to, or per floor above N); taxable or not. **GST %** per project, typed in (never assumed). A unit's **cost sheet** = base + its charges + GST; the unit's price (search, matching, shares) is the cost-sheet total unless the unit has its own price. "Price on request" per unit type hides prices on shares |
+| D23 | Payment plans | Several **payment plans** per project (construction-linked, down payment, possession-linked, flexi): steps with a label, % of the total or a fixed amount, and when it falls due (on booking, N days after booking, at a construction milestone, on possession). The project's **construction milestones** carry a status and a date. P1 shows a plan's schedule on a unit's cost sheet; P2 raises demands from it |
+| D24 | Matching | A requirement is matched against a project's **unit types**, not each unit: one match per requirement per (project, unit type), with the available count, pointing at the best available unit of the type. When that unit is blocked or sold the match moves to the next available one; when none is left it drops. A match shown or rejected is never offered again (as before) |
+| D25 | Permissions | Seeing projects, unit types, the board, price lists and payment plans: `PPRV` / `PPRM`. **New `PPJM` Manage projects**: add and edit projects, towers, unit types, generate units, price lists, payment plans, milestones and construction updates. Blocking or booking a unit: `PPRM`. A partner project's CP terms: seen with `PBRV`, edited with `PBRM`. Unit numbers of project units are not owner secrets (seen with `PPRV`); share pages still never show them |
+| D26 | What stays out | Website-only copy (FAQ, SEO text, layout) stays in zeronova-cms. The project holds the facts and media the app, the share page and (later) the website read |
+
+### 7.2 The project record
+
+| Group | Fields |
+|---|---|
+| Identity | Code (`PJ-0001`), name, own / partner. Partner: builder name, builder contact (name, phone, email), CP terms (commission % of agreement value, or an amount per unit type; when it is paid — e.g. on registry, or after 10–20% collected; lead registration validity in days; valid until; notes) |
+| Kind and stage | Categories (residential, commercial, mixed use, plotted, farmhouse, industrial, group housing — several), stage (upcoming / pre-launch, new launch, under construction, ready to move, completed), launch date, possession date |
+| RERA and approvals | RERA registrations (state, number, registered on, valid until, link — several, for phases); approvals (name, number, date: licence, CLU, environment, fire, OC/CC) |
+| Location | City, locality (the dealer's locality list), address, map pin, landmarks with distances (name, km or minutes) |
+| Size and figures | Land area (value + unit), towers / blocks / phases (name, floors), key figures (label + value — "201 ft wide front", "50 showrooms") |
+| Description | Overview, highlights, amenities, specifications (section + text: structure, flooring, doors, electrical …) |
+| Media | Photos (ordered, a cover), video and drone links, **brochure (PDF)**, master / site plan, a floor plan per unit type, **construction updates** (date, text, photos) |
+| Sales | Price list (D22), payment plans and milestones (D23), the project's GST % |
+
+A **unit type**: name ("3 BHK Type A", "Ground floor showroom", "250 sq yd plot"), property type, BHK, bathrooms,
+balconies, areas (carpet, built-up, super, plot; value + unit), dimensions, floor plan, price on request. Its units'
+counts by status are computed.
+
+### 7.3 API (GraphQL, prefix `ZeroNova_estate…`)
+
+- Queries: `estateProjects(search)`, `estateProject(projectId)` (towers, unit types with their counts, milestones,
+  updates, current price list, payment plans), `estateProjectUnits(projectId, unitTypeId?, tower?, statuses?)` (the
+  board), `estateUnitCostSheet(propertyId, paymentPlanId?)`, `estatePriceListVersions(projectId)`,
+  `estateSharedProject(token)` (public).
+- Mutations: `saveEstateProject`, `deleteEstateProject` (only with no booked or sold units), `confirmEstateProject`
+  (partner inventory checked), `saveEstateUnitType`, `deleteEstateUnitType` (only with no units), `generateEstateUnits`,
+  `saveEstateUnit` (number, tower, floor, its own fields, own price), `setEstateUnitStatus` (available / blocked for a
+  lead until a date / booked / sold / withdrawn), `saveEstatePriceList` (a new version), `saveEstatePaymentPlan`,
+  `deleteEstatePaymentPlan`, `saveEstateMilestones`, `addEstateConstructionUpdate`, `shareEstateProject(projectId,
+  requirementId?)`.
+- The property list hides project units unless asked (`PropertySearchInput.projectId` or `includeProjectUnits`); a
+  site visit can be to a project (`projectId`, unit optional).
+- Collections: `re_projects` (towers, milestones, updates inside), `re_unit_types`, `re_price_lists` (versions),
+  `re_payment_plans`; units stay in `re_properties`; shares gain `projectId`.
+
+### 7.4 Build order
+
+| Phase | What |
+|---|---|
+| **P1** | Projects (own and partner), towers, unit types, generated units, the unit board and statuses, the price list with versions and the cost sheet, payment plans and milestones, construction updates, brochure, the project share page, matching by unit type, project site visits, projects on the dashboard; the app's Projects screens; `PPJM` in Core |
+| P2 | Primary sale: block → booking (booking amount, applicants, plan chosen) → allotment letter → builder-buyer agreement (Word, like D12) → demands raised from the plan as milestones are reached, receipts, interest on late payment → possession → conveyance / registry; the customer's statement |
+| P3 | Channel partners: CP registration (firm, RERA agent number, PAN, GST, KYC), lead registration with validity and first-tag ownership, a CP's own view of inventory and their leads, commission slabs and payout runs with TDS (the M4 engine) |
+| Later | Projects on the website (the cms real-estate template), RERA QR on shares where a state requires it, AI answers from the brochure |

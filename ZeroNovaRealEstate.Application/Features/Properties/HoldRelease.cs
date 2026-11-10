@@ -7,8 +7,8 @@ using ZeroNovaRealEstate.Models.Properties;
 namespace ZeroNovaRealEstate.Application.Features.Properties;
 
 /// <summary>
-/// A hold that ran out (D6): the property is available again and is matched again. Runs with no caller, across
-/// companies, through the repositories' <c>companyId</c> overloads.
+/// A hold that ran out (D6): the property — or a blocked project unit (D20) — is available again and is matched again.
+/// Runs with no caller, across companies, through the repositories' <c>companyId</c> overloads.
 /// </summary>
 public sealed class HoldRelease(IPropertyRepository properties, MatchEngine engine, TimeProvider clock, ILogger<HoldRelease> logger)
 {
@@ -19,6 +19,8 @@ public sealed class HoldRelease(IPropertyRepository properties, MatchEngine engi
         {
             property.Status = PropertyStatus.Available;
             property.HoldUntil = null;
+            property.HoldLeadId = null;
+            property.HoldLeadName = null;
             await properties.UpdateAsync(property, ct, property.CompanyId);
             await engine.ForPropertyAsync(property, ct, property.CompanyId);
             logger.LogInformation("Hold on {Code} of company {CompanyId} ended; available again.", property.Code, property.CompanyId);

@@ -43,6 +43,9 @@ public static class ApplicationInstaller
         services.AddScoped<Features.Brokerage.BrokerageBook>();
         services.AddScoped<Features.Rentals.TenancyMapper>();
         services.AddScoped<Features.Rentals.RentReminders>();
+        // Projects (design 7): projects as members see them, and units kept in step with their type, project and price list.
+        services.AddScoped<Features.Projects.ProjectMapper>();
+        services.AddScoped<Features.Projects.ProjectUnitSync>();
 
         return services;
     }

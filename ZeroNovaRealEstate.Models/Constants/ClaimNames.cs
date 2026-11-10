@@ -41,6 +41,12 @@ public static class EstatePermissions
     public const string PropertyView = "PPRV";
     public const string PropertyManage = "PPRM";
 
+    /// <summary>
+    /// Projects (design 7, D25): add and edit projects, towers, unit types, units, price lists, payment plans, milestones
+    /// and construction updates. Seeing them is <see cref="PropertyView"/>; blocking or booking a unit is <see cref="PropertyManage"/>.
+    /// </summary>
+    public const string ProjectManage = "PPJM";
+
     /// <summary>Owners' phone numbers, unit numbers, Aadhaar and PAN (masked unless printing an agreement).</summary>
     public const string OwnerView = "POWV";
 

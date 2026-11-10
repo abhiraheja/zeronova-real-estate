@@ -102,7 +102,9 @@ public enum MatchStatus
 
 /// <summary>
 /// A property that fits a requirement (D10), with its score (0–100) and why. Once shown or rejected it is never offered
-/// again; <see cref="PriceWhenMatched"/> lets a later price drop be told apart.
+/// again; <see cref="PriceWhenMatched"/> lets a later price drop be told apart. A match to a project's unit type (D24)
+/// carries the project and type and points at the best available unit; <see cref="AvailableInGroup"/> is how many
+/// available units of the type fit.
 /// </summary>
 public sealed record MatchDto(
     string Id,
@@ -121,6 +123,11 @@ public sealed record MatchDto(
     MatchStatus Status,
     string? RejectReason,
     decimal? PriceWhenMatched,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    string? ProjectId = null,
+    string? ProjectName = null,
+    string? UnitTypeId = null,
+    string? UnitTypeName = null,
+    int? AvailableInGroup = null);
 
 public sealed record MatchUpdateInput(MatchStatus Status, string? RejectReason);

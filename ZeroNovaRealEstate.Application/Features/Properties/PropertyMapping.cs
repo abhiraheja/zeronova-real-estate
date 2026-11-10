@@ -48,7 +48,7 @@ public sealed class PropertyMapper(
         IReadOnlyDictionary<string, PartyDocument> owners, int openMatches, bool seesOwners, DateTime now) => new(
         p.Id, p.Code, p.Title, p.Purpose, p.Type, p.Status, p.HoldUntil, EstateSettings.IsStale(p, s, now),
         new DateTimeOffset(DateTime.SpecifyKind(p.LastConfirmedAt, DateTimeKind.Utc)), p.ConfirmedVia,
-        p.City, p.Locality, p.Society, p.Block, seesOwners ? p.UnitNumber : null, p.Latitude, p.Longitude,
+        p.City, p.Locality, p.Society, p.Block, seesOwners || p.ProjectId is not null ? p.UnitNumber : null, p.Latitude, p.Longitude,
         AreaMath.Dto(p.PlotArea), AreaMath.Dto(p.BuiltUpArea), AreaMath.Dto(p.CarpetArea), AreaMath.Dto(p.SuperArea), p.SizeSqFt,
         p.FrontFeet, p.DepthFeet, p.Price, p.Negotiable, seesOwners ? p.OwnerExpectation : null,
         p.Price is { } price && p.SizeSqFt is { } size && size > 0 ? Math.Round(price / size, 0) : null,
@@ -65,7 +65,8 @@ public sealed class PropertyMapper(
         [.. p.Owners.Select(o => new PropertyOwnerDto(o.PartyId, owners.GetValueOrDefault(o.PartyId)?.Name ?? "—",
             seesOwners ? owners.GetValueOrDefault(o.PartyId)?.Phone : null, o.SharePercent, o.Holding))],
         [.. p.History.Select(h => new Models.Deals.OwnershipRecordDto(h.FromNames, h.ToNames, h.Kind, h.Date, h.Note, h.DealId))],
-        openMatches, p.CreatedBy?.ChangedDate);
+        openMatches, p.CreatedBy?.ChangedDate,
+        p.ProjectId, p.ProjectId is null ? null : p.Society, p.UnitTypeId, p.UnitTypeName, p.Tower, p.OwnPrice, p.HoldLeadId, p.HoldLeadName);
 }
 
 /// <summary>A property input onto its document: cleaned, the other types' fields left out, sizes in sq ft, the title made.</summary>

@@ -19,10 +19,14 @@ public enum VisitOutcome
     NotInterested,
 }
 
-/// <summary>A site visit to schedule (M2): the property, the customer (lead, and their requirement when there is one), when.</summary>
+/// <summary>
+/// A site visit to schedule (M2): the property — or a project, with its unit optional (design 7.3) — the customer (lead,
+/// and their requirement when there is one), when.
+/// </summary>
 public sealed class VisitInput
 {
-    public string PropertyId { get; init; } = string.Empty;
+    public string? PropertyId { get; init; }
+    public string? ProjectId { get; init; }
     public string? RequirementId { get; init; }
     public string LeadId { get; init; } = string.Empty;
     public string? LeadName { get; init; }
@@ -38,9 +42,10 @@ public sealed class VisitInput
 
 public sealed record VisitResultInput(VisitStatus Status, VisitOutcome? Outcome, string? Feedback);
 
+/// <summary>A visit. To a project without a unit: no property id, and the code and title are the project's.</summary>
 public sealed record VisitDto(
     string Id,
-    string PropertyId,
+    string? PropertyId,
     string PropertyCode,
     string PropertyTitle,
     string? RequirementId,
@@ -58,7 +63,9 @@ public sealed record VisitDto(
     string? VisitTimings,
     string? OwnerPhone,
     string ClientMessage,
-    string? OwnerMessage);
+    string? OwnerMessage,
+    string? ProjectId = null,
+    string? ProjectName = null);
 
 /// <summary>A link to send a property to a customer (M2): a page with photos and details, never the owner or the unit number.</summary>
 public sealed record ShareDto(string Id, string Token, string Url, string PropertyId, string? RequirementId, int Opens, DateTimeOffset? LastOpenedAt,

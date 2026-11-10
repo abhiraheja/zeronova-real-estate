@@ -18,7 +18,7 @@ public sealed class VisitQuery(IMediator mediator) : QueryBase
     [RequirePermission(P.RequirementView, P.RequirementManage)]
     [GraphQLName("ZeroNova_estateVisits")]
     public Task<IReadOnlyList<VisitDto>> Visits(DateTimeOffset? from, DateTimeOffset? to, string? propertyId, string? requirementId, VisitStatus? status,
-        CancellationToken ct) => mediator.Send(new GetVisitsQuery(from, to, propertyId, requirementId, status), ct);
+        string? projectId, CancellationToken ct) => mediator.Send(new GetVisitsQuery(from, to, propertyId, requirementId, status, projectId), ct);
 
     [RequirePermission(P.PropertyView, P.PropertyManage)]
     [GraphQLName("ZeroNova_estateShares")]

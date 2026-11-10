@@ -15,7 +15,27 @@ public sealed class PropertyRepository(IMongoDatabase database, IRequestContext 
     public async Task<IReadOnlyList<PropertyDocument>> HoldsEndedAsync(string today, int take, CancellationToken ct = default) =>
         await Collection.Find(p => p.Status == PropertyStatus.OnHold && !p.IsDeleted && p.HoldUntil != null && p.HoldUntil.CompareTo(today) < 0)
             .Limit(take).ToListAsync(ct);
+
+    public Task StampProjectConfirmedAsync(string projectId, DateTime at, CancellationToken ct = default)
+    {
+        var company = ResolveCompanyId(null);
+        return Collection.UpdateManyAsync(p => p.CompanyId == company && p.ProjectId == projectId && !p.IsDeleted,
+            Builders<PropertyDocument>.Update.Set(p => p.LastConfirmedAt, at).Set(p => p.ConfirmedVia, ConfirmedVia.Call).Set(p => p.UpdatedBy, Stamp())
+                .Inc(p => p.Version, 1), cancellationToken: ct);
+    }
 }
+
+public sealed class ProjectRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<ProjectDocument>(database, context), IProjectRepository;
+
+public sealed class UnitTypeRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<UnitTypeDocument>(database, context), IUnitTypeRepository;
+
+public sealed class PriceListRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<PriceListDocument>(database, context), IPriceListRepository;
+
+public sealed class PaymentPlanRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<PaymentPlanDocument>(database, context), IPaymentPlanRepository;
 
 public sealed class PartyRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<PartyDocument>(database, context), IPartyRepository;
@@ -69,6 +89,12 @@ public sealed class MatchRepository(IMongoDatabase database, IRequestContext con
         if (requirementId is not null)
             filter &= f.Eq(m => m.RequirementId, requirementId) & f.Nin(m => m.PropertyId, keep);
         return Collection.DeleteManyAsync(filter, ct);
+    }
+
+    public Task RemoveNewAsync(string matchId, CancellationToken ct = default, string? companyId = null)
+    {
+        var company = ResolveCompanyId(companyId);
+        return Collection.DeleteOneAsync(m => m.Id == matchId && m.CompanyId == company && m.Status == MatchStatus.New, ct);
     }
 }
 

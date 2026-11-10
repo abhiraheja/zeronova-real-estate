@@ -11,7 +11,18 @@ public interface IPropertyRepository : ICompanyRepositoryBase<PropertyDocument>
     /// Every property on hold past its date, across companies — the hold sweep's one deliberate cross-tenant read.
     /// </summary>
     Task<IReadOnlyList<PropertyDocument>> HoldsEndedAsync(string today, int take, CancellationToken ct = default);
+
+    /// <summary>Stamps every unit of a project confirmed at <paramref name="at"/> (a partner project checked as a whole, D21).</summary>
+    Task StampProjectConfirmedAsync(string projectId, DateTime at, CancellationToken ct = default);
 }
+
+public interface IProjectRepository : ICompanyRepositoryBase<ProjectDocument>;
+
+public interface IUnitTypeRepository : ICompanyRepositoryBase<UnitTypeDocument>;
+
+public interface IPriceListRepository : ICompanyRepositoryBase<PriceListDocument>;
+
+public interface IPaymentPlanRepository : ICompanyRepositoryBase<PaymentPlanDocument>;
 
 public interface IPartyRepository : ICompanyRepositoryBase<PartyDocument>;
 
@@ -27,6 +38,9 @@ public interface IMatchRepository : ICompanyRepositoryBase<MatchDocument>
 
     /// <summary>Drops the still-new matches of a property (or a requirement) not in <paramref name="keep"/>.</summary>
     Task DropNewAsync(string? propertyId, string? requirementId, IReadOnlyCollection<string> keep, CancellationToken ct = default, string? companyId = null);
+
+    /// <summary>Removes a still-new match for good (a unit type's match with no unit left, D24).</summary>
+    Task RemoveNewAsync(string matchId, CancellationToken ct = default, string? companyId = null);
 }
 
 public interface IVisitRepository : ICompanyRepositoryBase<VisitDocument>

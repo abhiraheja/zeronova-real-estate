@@ -24,6 +24,11 @@ public sealed class GetPropertiesHandler(IPropertyRepository properties, IEstate
         var query = properties.GetDocuments();
         var statuses = f.Statuses is { Count: > 0 } st ? st.ToList() : [PropertyStatus.Available, PropertyStatus.OnHold];
         query = query.Where(p => statuses.Contains(p.Status));
+        // Project units are a project's (design 7.3): listed for that project, or when asked for.
+        if (EstateText.Clean(f.ProjectId) is { } projectId)
+            query = query.Where(p => p.ProjectId == projectId);
+        else if (!f.IncludeProjectUnits)
+            query = query.Where(p => p.ProjectId == null);
         if (f.Purpose is { } purpose)
             query = query.Where(p => p.Purpose == purpose);
         if (f.Types is { Count: > 0 } types)
@@ -72,8 +77,10 @@ public sealed class GetPropertiesHandler(IPropertyRepository properties, IEstate
             var saleCut = now.AddDays(-s.SaleFreshDays);
             var rentCut = now.AddDays(-s.RentFreshDays);
             query = stale
-                ? query.Where(p => (p.Purpose == PropertyPurpose.Sale && p.LastConfirmedAt < saleCut) || (p.Purpose == PropertyPurpose.Rent && p.LastConfirmedAt < rentCut))
-                : query.Where(p => (p.Purpose == PropertyPurpose.Sale && p.LastConfirmedAt >= saleCut) || (p.Purpose == PropertyPurpose.Rent && p.LastConfirmedAt >= rentCut));
+                ? query.Where(p => p.ProjectId == null
+                    && ((p.Purpose == PropertyPurpose.Sale && p.LastConfirmedAt < saleCut) || (p.Purpose == PropertyPurpose.Rent && p.LastConfirmedAt < rentCut)))
+                : query.Where(p => p.ProjectId != null
+                    || (p.Purpose == PropertyPurpose.Sale && p.LastConfirmedAt >= saleCut) || (p.Purpose == PropertyPurpose.Rent && p.LastConfirmedAt >= rentCut));
         }
         foreach (var word in (f.Text ?? string.Empty).ToLowerInvariant().Split(' ', StringSplitOptions.RemoveEmptyEntries).Take(6))
             query = query.Where(p => p.SearchText.Contains(word));
@@ -106,7 +113,7 @@ public sealed class GetPropertyHandler(IPropertyRepository properties, PropertyM
         await mapper.OneAsync(await PropertyLookup.RequireAsync(properties, request.PropertyId, ct), ct);
 }
 
-/// <summary>Properties to check (D6): available or on hold, past the dealer's freshness days, oldest first.</summary>
+/// <summary>Properties to check (D6): available or on hold, past the dealer's freshness days, oldest first. Project units never (D21).</summary>
 public sealed record GetStalePropertiesQuery(int Take = 50) : IRequest<IReadOnlyList<PropertyDto>>;
 
 public sealed class GetStalePropertiesHandler(IPropertyRepository properties, IEstateSettingsRepository settings, PropertyMapper mapper, TimeProvider clock)
@@ -118,7 +125,7 @@ public sealed class GetStalePropertiesHandler(IPropertyRepository properties, IE
         var now = clock.GetUtcNow().UtcDateTime;
         var saleCut = now.AddDays(-s.SaleFreshDays);
         var rentCut = now.AddDays(-s.RentFreshDays);
-        var rows = await properties.GetDocuments(p => (p.Status == PropertyStatus.Available || p.Status == PropertyStatus.OnHold)
+        var rows = await properties.GetDocuments(p => p.ProjectId == null && (p.Status == PropertyStatus.Available || p.Status == PropertyStatus.OnHold)
                 && ((p.Purpose == PropertyPurpose.Sale && p.LastConfirmedAt < saleCut) || (p.Purpose == PropertyPurpose.Rent && p.LastConfirmedAt < rentCut)))
             .OrderBy(p => p.LastConfirmedAt).Take(Math.Clamp(request.Take, 1, 200)).ToListAsync(ct);
         return await mapper.ManyAsync(rows, ct);
@@ -201,7 +208,8 @@ public sealed class SavePropertyHandler(
                 ConfirmedVia = ConfirmedVia.Added,
             }
             : await PropertyLookup.RequireAsync(properties, request.PropertyId!, ct);
-        var oldPrice = property.PriceValue;
+        if (property.ProjectId is not null)
+            throw new ValidatorException($"{property.Code} is a project unit: change it from its project (its type, its unit details).");
 
         await PropertyWriter.ApplyAsync(property, request.Input, s, fields, ct);
         if (isNew)
@@ -227,6 +235,8 @@ public sealed class ConfirmPropertyHandler(IPropertyRepository properties, Match
     public async Task<PropertyDto> Handle(ConfirmPropertyCommand request, CancellationToken ct)
     {
         var property = await PropertyLookup.RequireAsync(properties, request.PropertyId, ct);
+        if (property.ProjectId is not null)
+            throw new ValidatorException($"{property.Code} is a project unit: set its status on the unit board, and confirm the project as a whole.");
         var input = request.Input;
         property.Status = input.Status;
         property.HoldUntil = input.Status == PropertyStatus.OnHold
@@ -256,11 +266,19 @@ public sealed class ConfirmPropertyHandler(IPropertyRepository properties, Match
 
 public sealed record DeletePropertyCommand(string PropertyId) : IRequest<bool>;
 
-public sealed class DeletePropertyHandler(IPropertyRepository properties, MatchEngine engine) : IRequestHandler<DeletePropertyCommand, bool>
+/// <summary>Removes a property. A project unit needs PPJM and may not be booked or sold (design 7.3).</summary>
+public sealed class DeletePropertyHandler(IPropertyRepository properties, MatchEngine engine, EstateScope scope) : IRequestHandler<DeletePropertyCommand, bool>
 {
     public async Task<bool> Handle(DeletePropertyCommand request, CancellationToken ct)
     {
         var property = await PropertyLookup.RequireAsync(properties, request.PropertyId, ct);
+        if (property.ProjectId is not null)
+        {
+            if (!scope.Has(Models.Constants.EstatePermissions.ProjectManage))
+                throw new ValidatorException("Removing a project unit needs Manage projects.");
+            if (property.Status is PropertyStatus.TokenReceived or PropertyStatus.Sold or PropertyStatus.Rented)
+                throw new ValidatorException($"{property.Code} is booked or sold; it cannot be removed.");
+        }
         await properties.DeleteAsync(property.Id, ct);
         await engine.DropForPropertyAsync(property.Id, ct);
         return true;

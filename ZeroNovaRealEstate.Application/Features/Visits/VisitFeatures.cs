@@ -19,8 +19,9 @@ namespace ZeroNovaRealEstate.Application.Features.Visits;
 // ── Site visits ───────────────────────────────────────────────────────────────────────────────────────
 
 /// <summary>
-/// Schedules a site visit (M2): the property, the customer and their requirement, when, where to meet. The answer
-/// carries ready WhatsApp messages for the customer and the owner (sent from the dealer's own WhatsApp).
+/// Schedules a site visit (M2): the property — or a project, its unit optional (design 7.3) — the customer and their
+/// requirement, when, where to meet. The answer carries ready WhatsApp messages for the customer and the owner (sent
+/// from the dealer's own WhatsApp).
 /// </summary>
 public sealed record ScheduleVisitCommand(VisitInput Input) : IRequest<VisitDto>;
 
@@ -28,22 +29,36 @@ public sealed class ScheduleVisitValidator : AbstractValidator<ScheduleVisitComm
 {
     public ScheduleVisitValidator()
     {
-        RuleFor(x => x.Input.PropertyId).NotEmpty();
+        RuleFor(x => x.Input).Must(i => !string.IsNullOrWhiteSpace(i.PropertyId) || !string.IsNullOrWhiteSpace(i.ProjectId))
+            .WithMessage("Pick the property or the project.");
         RuleFor(x => x.Input.LeadId).NotEmpty().WithMessage("Pick the customer (lead) first.");
         RuleFor(x => x.Input.Notes).MaximumLength(1000);
     }
 }
 
-public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepository properties, IRequirementRepository requirements, VisitMapper mapper,
-    EstateScope scope, TimeProvider clock)
+public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepository properties, IProjectRepository projects, IRequirementRepository requirements,
+    VisitMapper mapper, EstateScope scope, TimeProvider clock)
     : IRequestHandler<ScheduleVisitCommand, VisitDto>
 {
     public async Task<VisitDto> Handle(ScheduleVisitCommand request, CancellationToken ct)
     {
         var input = request.Input;
-        var property = await properties.GetDocument(input.PropertyId).FirstOrDefaultAsync(ct) ?? throw new ValidatorException("Property not found.");
-        if (property.Status is PropertyStatus.Sold or PropertyStatus.Rented or PropertyStatus.Withdrawn)
-            throw new ValidatorException($"{property.Code} is {property.Status.ToString().ToLowerInvariant()}.");
+        PropertyDocument? property = null;
+        if (EstateText.Clean(input.PropertyId) is { } propertyId)
+        {
+            property = await properties.GetDocument(propertyId).FirstOrDefaultAsync(ct) ?? throw new ValidatorException("Property not found.");
+            if (property.Status is PropertyStatus.Sold or PropertyStatus.Rented or PropertyStatus.Withdrawn)
+                throw new ValidatorException($"{property.Code} is {property.Status.ToString().ToLowerInvariant()}.");
+        }
+        ProjectDocument? project = null;
+        if (property is not null && EstateText.Clean(input.ProjectId) is { } asked && asked != property.ProjectId)
+            throw new ValidatorException($"{property.Code} is not a unit of that project.");
+        if ((property?.ProjectId ?? EstateText.Clean(input.ProjectId)) is { } projectId)
+        {
+            project = await projects.GetDocument(projectId).FirstOrDefaultAsync(ct) ?? throw new ValidatorException("Project not found.");
+            if (property is not null && property.ProjectId != project.Id)
+                throw new ValidatorException($"{property.Code} is not a unit of {project.Name}.");
+        }
         if (input.At < clock.GetUtcNow().AddMinutes(-30))
             throw new ValidatorException("A visit is scheduled for a time to come.");
         if (EstateText.Clean(input.RequirementId) is { } requirementId)
@@ -54,7 +69,7 @@ public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepos
 
         var visit = new VisitDocument
         {
-            Id = visits.GetNewId, PropertyId = property.Id, RequirementId = EstateText.Clean(input.RequirementId), LeadId = input.LeadId.Trim(),
+            Id = visits.GetNewId, PropertyId = property?.Id, ProjectId = project?.Id, RequirementId = EstateText.Clean(input.RequirementId), LeadId = input.LeadId.Trim(),
             LeadName = EstateText.Clean(input.LeadName), LeadPhone = EstateText.Phone(input.LeadPhone), AgentId = agent, At = input.At.UtcDateTime,
             MeetingPoint = EstateText.Clean(input.MeetingPoint), Notes = EstateText.Clean(input.Notes),
         };
@@ -82,11 +97,13 @@ public sealed class RescheduleVisitHandler(IVisitRepository visits, VisitMapper 
 
 /// <summary>
 /// How the visit went: done (with the customer's outcome and words), no-show or cancelled. A done visit moves the
-/// customer's match: interested or negotiating → interested; not interested → rejected with the feedback.
+/// customer's match: interested or negotiating → interested; not interested → rejected with the feedback. A visit to a
+/// unit moves its unit type's match; a visit to a project without a unit moves the customer's matches to that project.
 /// </summary>
 public sealed record RecordVisitResultCommand(string VisitId, VisitResultInput Input) : IRequest<VisitDto>;
 
-public sealed class RecordVisitResultHandler(IVisitRepository visits, IMatchRepository matches, VisitMapper mapper, EstateScope scope, TimeProvider clock)
+public sealed class RecordVisitResultHandler(IVisitRepository visits, IMatchRepository matches, IPropertyRepository properties, VisitMapper mapper, EstateScope scope,
+    TimeProvider clock)
     : IRequestHandler<RecordVisitResultCommand, VisitDto>
 {
     public async Task<VisitDto> Handle(RecordVisitResultCommand request, CancellationToken ct)
@@ -102,8 +119,21 @@ public sealed class RecordVisitResultHandler(IVisitRepository visits, IMatchRepo
 
         if (visit.Status == VisitStatus.Done && visit.RequirementId is { } requirementId && visit.Outcome is { } outcome)
         {
-            var match = await matches.GetDocuments(m => m.PropertyId == visit.PropertyId && m.RequirementId == requirementId).FirstOrDefaultAsync(ct);
-            if (match is not null)
+            var moved = new List<MatchDocument>();
+            if (visit.PropertyId is { } visited
+                && await matches.GetDocuments(m => m.PropertyId == visited && m.RequirementId == requirementId).FirstOrDefaultAsync(ct) is { } exact)
+                moved.Add(exact);
+            else if (visit.ProjectId is { } projectId)
+            {
+                var unitTypeId = visit.PropertyId is { } unitId
+                    ? await properties.GetDocuments(p => p.Id == unitId, true).Select(p => p.UnitTypeId).FirstOrDefaultAsync(ct)
+                    : null;
+                var query = matches.GetDocuments(m => m.RequirementId == requirementId && m.ProjectId == projectId);
+                if (unitTypeId is not null)
+                    query = query.Where(m => m.UnitTypeId == unitTypeId);
+                moved.AddRange(await query.ToListAsync(ct));
+            }
+            foreach (var match in moved)
             {
                 match.Status = outcome == VisitOutcome.NotInterested ? MatchStatus.Rejected : MatchStatus.Interested;
                 match.RejectReason = match.Status == MatchStatus.Rejected ? visit.Feedback ?? "Not interested after the visit" : null;
@@ -115,8 +145,8 @@ public sealed class RecordVisitResultHandler(IVisitRepository visits, IMatchRepo
     }
 }
 
-/// <summary>Visits the caller may see — their own, or everyone's with PRQV — in a time window, of a property or a requirement.</summary>
-public sealed record GetVisitsQuery(DateTimeOffset? From, DateTimeOffset? To, string? PropertyId, string? RequirementId, VisitStatus? Status)
+/// <summary>Visits the caller may see — their own, or everyone's with PRQV — in a time window, of a property, a project or a requirement.</summary>
+public sealed record GetVisitsQuery(DateTimeOffset? From, DateTimeOffset? To, string? PropertyId, string? RequirementId, VisitStatus? Status, string? ProjectId = null)
     : IRequest<IReadOnlyList<VisitDto>>;
 
 public sealed class GetVisitsHandler(IVisitRepository visits, VisitMapper mapper, EstateScope scope) : IRequestHandler<GetVisitsQuery, IReadOnlyList<VisitDto>>
@@ -143,6 +173,8 @@ public sealed class GetVisitsHandler(IVisitRepository visits, VisitMapper mapper
             query = query.Where(v => v.PropertyId == propertyId);
         if (EstateText.Clean(request.RequirementId) is { } requirementId)
             query = query.Where(v => v.RequirementId == requirementId);
+        if (EstateText.Clean(request.ProjectId) is { } projectId)
+            query = query.Where(v => v.ProjectId == projectId);
         if (request.Status is { } status)
             query = query.Where(v => v.Status == status);
         return await mapper.ManyAsync(await query.OrderBy(v => v.At).Take(300).ToListAsync(ct), ct);
@@ -161,7 +193,8 @@ internal static class VisitLookup
 }
 
 /// <summary>Visits as members see them, with the WhatsApp messages for the customer and the owner (owner's only with POWV).</summary>
-public sealed class VisitMapper(IPropertyRepository properties, IPartyRepository parties, IEstateSettingsRepository settings, EstateScope scope)
+public sealed class VisitMapper(IPropertyRepository properties, IProjectRepository projects, IPartyRepository parties, IEstateSettingsRepository settings,
+    EstateScope scope)
 {
     public async Task<VisitDto> OneAsync(VisitDocument visit, CancellationToken ct) => (await ManyAsync([visit], ct))[0];
 
@@ -170,32 +203,39 @@ public sealed class VisitMapper(IPropertyRepository properties, IPartyRepository
         if (rows.Count == 0)
             return [];
         var s = await EstateSettings.LoadAsync(settings, ct);
-        var ids = rows.Select(v => v.PropertyId).Distinct().ToList();
+        var ids = rows.Select(v => v.PropertyId).OfType<string>().Distinct().ToList();
         var props = (await properties.GetDocuments(p => ids.Contains(p.Id), true).ToListAsync(ct)).ToDictionary(p => p.Id);
+        var projectIds = rows.Select(v => v.ProjectId).OfType<string>().Distinct().ToList();
+        var projs = projectIds.Count == 0
+            ? new Dictionary<string, ProjectDocument>()
+            : (await projects.GetDocuments(p => projectIds.Contains(p.Id), true).ToListAsync(ct)).ToDictionary(p => p.Id);
         var ownerIds = props.Values.Select(p => p.Owners.FirstOrDefault()?.PartyId).OfType<string>().Distinct().ToList();
         var owners = (await parties.GetDocuments(p => ownerIds.Contains(p.Id), true).ToListAsync(ct)).ToDictionary(p => p.Id);
-        return [.. rows.Where(v => props.ContainsKey(v.PropertyId)).Select(v =>
+        return [.. rows.Where(v => v.PropertyId is { } id ? props.ContainsKey(id) : v.ProjectId is { } pj && projs.ContainsKey(pj)).Select(v =>
         {
-            var p = props[v.PropertyId];
-            var owner = p.Owners.FirstOrDefault()?.PartyId is { } oid ? owners.GetValueOrDefault(oid) : null;
+            var p = v.PropertyId is { } id ? props[id] : null;
+            var project = v.ProjectId is { } pj ? projs.GetValueOrDefault(pj) : null;
+            var code = p?.Code ?? project!.Code;
+            var title = p?.Title ?? project!.Name;
+            var owner = p?.Owners.FirstOrDefault()?.PartyId is { } oid ? owners.GetValueOrDefault(oid) : null;
             var when = Drafts.When(v.At);
-            var client = $"Namaste {v.LeadName ?? "ji"}, your visit to see the {p.Title} is fixed for {when}."
+            var client = $"Namaste {v.LeadName ?? "ji"}, your visit to see {(p is not null ? "the " + p.Title : project!.Name)} is fixed for {when}."
                 + (v.MeetingPoint is { } mp ? $" We meet at {mp}." : string.Empty)
                 + (s.DealerName is { } dn ? $" — {dn}" : string.Empty);
             var ownerText = scope.SeesOwners && owner is not null
-                ? $"Namaste {owner.Name}, a customer will visit your {p.Title} on {when}. Please keep it open and ready."
+                ? $"Namaste {owner.Name}, a customer will visit your {title} on {when}. Please keep it open and ready."
                     + (s.DealerName is { } dealer ? $" — {dealer}" : string.Empty)
                 : null;
-            return new VisitDto(v.Id, p.Id, p.Code, p.Title, v.RequirementId, v.LeadId, v.LeadName, v.LeadPhone, v.AgentId,
-                new DateTimeOffset(DateTime.SpecifyKind(v.At, DateTimeKind.Utc)), v.MeetingPoint, v.Status, v.Outcome, v.Feedback, v.Notes, p.KeysWith,
-                p.VisitTimings, scope.SeesOwners ? owner?.Phone : null, client, ownerText);
+            return new VisitDto(v.Id, p?.Id, code, title, v.RequirementId, v.LeadId, v.LeadName, v.LeadPhone, v.AgentId,
+                new DateTimeOffset(DateTime.SpecifyKind(v.At, DateTimeKind.Utc)), v.MeetingPoint, v.Status, v.Outcome, v.Feedback, v.Notes, p?.KeysWith,
+                p?.VisitTimings, scope.SeesOwners ? owner?.Phone : null, client, ownerText, project?.Id, project?.Name);
         })];
     }
 }
 
 /// <summary>A bell to the agent for each visit starting within the hour, once (across companies; no caller).</summary>
-public sealed class VisitReminders(IVisitRepository visits, IPropertyRepository properties, IAgentNotificationProducer bell, TimeProvider clock,
-    ILogger<VisitReminders> logger)
+public sealed class VisitReminders(IVisitRepository visits, IPropertyRepository properties, IProjectRepository projects, IAgentNotificationProducer bell,
+    TimeProvider clock, ILogger<VisitReminders> logger)
 {
     public async Task<int> RunOnceAsync(CancellationToken ct)
     {
@@ -207,14 +247,16 @@ public sealed class VisitReminders(IVisitRepository visits, IPropertyRepository 
             await visits.UpdateAsync(visit, ct, visit.CompanyId);
             if (visit.At < now.AddHours(-2).UtcDateTime)
                 continue;   // long past: marked, not rung
-            var property = await properties.GetDocument(visit.PropertyId, true, visit.CompanyId).FirstOrDefaultAsync(ct);
+            var what = visit.PropertyId is { } propertyId
+                ? (await properties.GetDocument(propertyId, true, visit.CompanyId).FirstOrDefaultAsync(ct))?.Title
+                : visit.ProjectId is { } projectId ? (await projects.GetDocument(projectId, true, visit.CompanyId).FirstOrDefaultAsync(ct))?.Name : null;
             try
             {
                 await bell.PublishAsync(new DispatchEventMessage(Guid.NewGuid().ToString(), "ESTATE_VISIT_SOON", visit.CompanyId, string.Empty,
                     new { visitId = visit.Id }, new DispatchDelivery(false, true, "IfOffline"),
                     new DispatchMeta("high", "zeronova-real-estate", visit.Id, now),
                     new DispatchNotification(visit.CompanyId, [visit.AgentId], $"Site visit at {Drafts.Time(visit.At)}: {visit.LeadName ?? "customer"}",
-                        property?.Title, "/real-estate/visits", "calendar-event")), ct);
+                        what, "/real-estate/visits", "calendar-event")), ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -234,7 +276,7 @@ public sealed class VisitReminders(IVisitRepository visits, IPropertyRepository 
 public sealed record CreateShareCommand(string PropertyId, string? RequirementId) : IRequest<ShareDto>;
 
 public sealed class CreateShareHandler(IShareRepository shares, IPropertyRepository properties, IRequirementRepository requirements, IMatchRepository matches,
-    ShareOptions options, EstateScope scope, TimeProvider clock)
+    IUnitTypeRepository unitTypes, ShareOptions options, EstateScope scope, TimeProvider clock)
     : IRequestHandler<CreateShareCommand, ShareDto>
 {
     public async Task<ShareDto> Handle(CreateShareCommand request, CancellationToken ct)
@@ -265,13 +307,14 @@ public sealed class CreateShareHandler(IShareRepository shares, IPropertyReposit
                 await matches.UpdateAsync(match, ct);
             }
         }
-        return ShareMapping.ToDto(share, property, options, requirement?.LeadName);
+        return ShareMapping.ToDto(share, property, options, requirement?.LeadName, await ShareMapping.PriceOnRequestAsync(property, unitTypes, ct));
     }
 }
 
 public sealed record GetSharesQuery(string PropertyId) : IRequest<IReadOnlyList<ShareDto>>;
 
-public sealed class GetSharesHandler(IShareRepository shares, IPropertyRepository properties, IRequirementRepository requirements, ShareOptions options)
+public sealed class GetSharesHandler(IShareRepository shares, IPropertyRepository properties, IRequirementRepository requirements, IUnitTypeRepository unitTypes,
+    ShareOptions options)
     : IRequestHandler<GetSharesQuery, IReadOnlyList<ShareDto>>
 {
     public async Task<IReadOnlyList<ShareDto>> Handle(GetSharesQuery request, CancellationToken ct)
@@ -280,24 +323,29 @@ public sealed class GetSharesHandler(IShareRepository shares, IPropertyRepositor
         var rows = await shares.GetDocuments(s => s.PropertyId == property.Id).OrderByDescending(s => s.CreatedAt).Take(100).ToListAsync(ct);
         var reqIds = rows.Select(r => r.RequirementId).OfType<string>().Distinct().ToList();
         var names = (await requirements.GetDocuments(r => reqIds.Contains(r.Id), true).ToListAsync(ct)).ToDictionary(r => r.Id, r => r.LeadName);
-        return [.. rows.Select(r => ShareMapping.ToDto(r, property, options, r.RequirementId is { } id ? names.GetValueOrDefault(id) : null))];
+        var onRequest = await ShareMapping.PriceOnRequestAsync(property, unitTypes, ct);
+        return [.. rows.Select(r => ShareMapping.ToDto(r, property, options, r.RequirementId is { } id ? names.GetValueOrDefault(id) : null, onRequest))];
     }
 }
 
 /// <summary>The shared page, for anyone with the link: the property as the customer may see it. Each open is counted.</summary>
 public sealed record GetSharedPropertyQuery(string Token) : IRequest<SharedPropertyDto>;
 
-public sealed class GetSharedPropertyHandler(IShareRepository shares, IPropertyRepository properties, IEstateSettingsRepository settings, TimeProvider clock)
+public sealed class GetSharedPropertyHandler(IShareRepository shares, IPropertyRepository properties, IUnitTypeRepository unitTypes, IEstateSettingsRepository settings,
+    TimeProvider clock)
     : IRequestHandler<GetSharedPropertyQuery, SharedPropertyDto>
 {
     public async Task<SharedPropertyDto> Handle(GetSharedPropertyQuery request, CancellationToken ct)
     {
         var share = await shares.FindByTokenAnyTenantAsync(request.Token.Trim(), ct) ?? throw new ValidatorException("This link is not valid.");
-        var p = await properties.GetDocument(share.PropertyId, true, share.CompanyId).FirstOrDefaultAsync(ct) ?? throw new ValidatorException("This link is not valid.");
+        if (share.PropertyId is not { } propertyId)
+            throw new ValidatorException("This link is not valid.");
+        var p = await properties.GetDocument(propertyId, true, share.CompanyId).FirstOrDefaultAsync(ct) ?? throw new ValidatorException("This link is not valid.");
         var s = await EstateSettings.LoadAsync(settings, ct, share.CompanyId);
+        var onRequest = await ShareMapping.PriceOnRequestAsync(p, unitTypes, ct, share.CompanyId);
         await shares.RecordOpenAsync(share.Id, share.CompanyId, clock.GetUtcNow().UtcDateTime, ct);
         return new SharedPropertyDto(p.Title, p.Purpose, p.Type, p.City, p.Locality, p.Society, AreaMath.Dto(p.PlotArea), AreaMath.Dto(p.BuiltUpArea),
-            AreaMath.Dto(p.CarpetArea), AreaMath.Dto(p.SuperArea), p.Price, p.Negotiable, p.Rent, p.Deposit, p.Bhk, p.Bathrooms, p.Floor, p.TotalFloors,
+            AreaMath.Dto(p.CarpetArea), AreaMath.Dto(p.SuperArea), onRequest ? null : p.Price, p.Negotiable, p.Rent, p.Deposit, p.Bhk, p.Bathrooms, p.Floor, p.TotalFloors,
             p.Furnishing, p.Facing, p.Corner, p.ParkFacing, p.Amenities, [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], p.VideoUrl,
             s.DealerName, s.DealerPhone, s.ReraNumber, !p.IsDeleted && p.Status is PropertyStatus.Available or PropertyStatus.OnHold);
     }
@@ -323,15 +371,20 @@ public sealed class GetOwnerCheckDraftHandler(IPropertyRepository properties, IP
 
 internal static class ShareMapping
 {
-    public static ShareDto ToDto(ShareDocument s, PropertyDocument p, ShareOptions options, string? leadName)
+    public static ShareDto ToDto(ShareDocument s, PropertyDocument p, ShareOptions options, string? leadName, bool priceOnRequest = false)
     {
         var url = $"{options.BaseUrl.TrimEnd('/')}/p/{s.Token}";
-        var price = p.PriceValue is { } v ? $"\n{EstateText.Rupees(v)}{(p.Purpose == PropertyPurpose.Rent ? " / month" : string.Empty)}" : string.Empty;
+        var price = !priceOnRequest && p.PriceValue is { } v ? $"\n{EstateText.Rupees(v)}{(p.Purpose == PropertyPurpose.Rent ? " / month" : string.Empty)}" : string.Empty;
         var message = $"Namaste {leadName ?? "ji"}, here is a property for you: {p.Title}{price}\nPhotos and details: {url}";
         return new ShareDto(s.Id, s.Token, url, p.Id, s.RequirementId, s.Opens,
             s.LastOpenedAt is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null,
             new DateTimeOffset(DateTime.SpecifyKind(s.CreatedAt, DateTimeKind.Utc)), message);
     }
+
+    /// <summary>A project unit whose type is "price on request" (D22) shows no price to a customer.</summary>
+    public static async Task<bool> PriceOnRequestAsync(PropertyDocument p, IUnitTypeRepository unitTypes, CancellationToken ct, string? companyId = null) =>
+        p.UnitTypeId is { } typeId
+        && await unitTypes.GetDocuments(t => t.Id == typeId, true, companyId).Select(t => t.PriceOnRequest).FirstOrDefaultAsync(ct);
 }
 
 /// <summary>Times in India and WhatsApp links as dealers send them.</summary>

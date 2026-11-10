@@ -71,7 +71,8 @@ public static class MatchMapping
             var p = props[m.PropertyId];
             var r = reqs[m.RequirementId];
             return new MatchDto(m.Id, p.Id, p.Code, p.Title, p.PriceValue, p.Status, r.Id, r.LeadId, r.LeadName, r.LeadPhone, m.AgentId, m.Score,
-                m.Reasons, m.Status, m.RejectReason, m.PriceWhenMatched, new DateTimeOffset(DateTime.SpecifyKind(m.CreatedAt, DateTimeKind.Utc)));
+                m.Reasons, m.Status, m.RejectReason, m.PriceWhenMatched, new DateTimeOffset(DateTime.SpecifyKind(m.CreatedAt, DateTimeKind.Utc)),
+                m.ProjectId, m.ProjectName, m.UnitTypeId, m.UnitTypeName ?? p.UnitTypeName, m.AvailableInGroup);
         })];
     }
 }

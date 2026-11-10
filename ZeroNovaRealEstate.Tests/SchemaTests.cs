@@ -1,4 +1,5 @@
 using HotChocolate.Execution;
+using HotChocolate.Language;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -34,12 +35,35 @@ public sealed class SchemaTests
             "ZeroNova_saveEstateSettings(", "ZeroNova_saveEstateCustomField(", "ZeroNova_deleteEstateCustomField(",
             "ZeroNova_estateVisits(", "ZeroNova_estateShares(", "ZeroNova_estateSharedProperty(", "ZeroNova_estateOwnerCheckDraft(", "ZeroNova_scheduleEstateVisit(", "ZeroNova_rescheduleEstateVisit(", "ZeroNova_recordEstateVisitResult(", "ZeroNova_shareEstateProperty(",
             "ZeroNova_estateDeals(", "ZeroNova_estateDeal(", "ZeroNova_estateAgreementTemplates", "ZeroNova_estateAgreementPreview(", "ZeroNova_saveEstateDeal(", "ZeroNova_setEstateDealStage(", "ZeroNova_updateEstateDealChecklist(", "ZeroNova_addEstateOwnershipRecord(", "ZeroNova_buildEstateAgreement(", "ZeroNova_saveEstateAgreementTemplate(", "ZeroNova_deleteEstateAgreementTemplate(",
+            "ZeroNova_estateProjects(", "ZeroNova_estateProject(", "ZeroNova_estateProjectUnits(", "ZeroNova_estateUnitCostSheet(", "ZeroNova_estatePriceListVersions(",
+            "ZeroNova_estateProjectShares(", "ZeroNova_estateSharedProject(", "ZeroNova_saveEstateProject(", "ZeroNova_deleteEstateProject(", "ZeroNova_confirmEstateProject(",
+            "ZeroNova_saveEstateUnitType(", "ZeroNova_deleteEstateUnitType(", "ZeroNova_generateEstateUnits(", "ZeroNova_saveEstateUnit(", "ZeroNova_setEstateUnitStatus(",
+            "ZeroNova_saveEstatePriceList(", "ZeroNova_saveEstatePaymentPlan(", "ZeroNova_deleteEstatePaymentPlan(", "ZeroNova_saveEstateMilestones(",
+            "ZeroNova_addEstateConstructionUpdate(", "ZeroNova_deleteEstateConstructionUpdate(", "ZeroNova_shareEstateProject(",
+            "PER_FLOOR_ABOVE", "ON_AGREEMENT", "FARMHOUSE", "availableInGroup: Int",
             "BUILDER_FLOOR", "NORTH_EAST", "SQ_YD", "MARLA", "price: Decimal", "sizeSqFt: Decimal",
         })
             Assert.Contains(field, sdl);
 
         if (Environment.GetEnvironmentVariable("ZN_ESTATE_SDL_OUT") is { Length: > 0 } path)
-            await File.WriteAllTextAsync(path, sdl.EndsWith('\n') ? sdl : sdl + "\n");
+            await File.WriteAllTextAsync(path, ForApp(sdl) + "\n");
+    }
+
+    /// <summary>
+    /// The SDL the app's codegen reads: the access policies (<c>@authorize</c>, <c>@allowAnonymous</c>) are the service's
+    /// business, not the app's, so they are left out — the file then changes only when the API does.
+    /// </summary>
+    private static string ForApp(string sdl)
+    {
+        static bool Policy(DirectiveNode d) => d.Name.Value is "authorize" or "allowAnonymous";
+        var document = Utf8GraphQLParser.Parse(sdl);
+        var definitions = document.Definitions
+            .Where(d => d is not DirectiveDefinitionNode { Name.Value: "authorize" or "allowAnonymous" })
+            .Select(d => d is ObjectTypeDefinitionNode o
+                ? o.WithDirectives([.. o.Directives.Where(x => !Policy(x))]).WithFields([.. o.Fields.Select(f => f.WithDirectives([.. f.Directives.Where(x => !Policy(x))]))])
+                : d)
+            .ToList();
+        return document.WithDefinitions(definitions).ToString(true);
     }
 
     private sealed class Env : IWebHostEnvironment

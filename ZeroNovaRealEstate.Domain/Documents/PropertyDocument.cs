@@ -181,4 +181,22 @@ public sealed class PropertyDocument : CompanyDocumentBase
     [BsonElement("searchText")] public string SearchText { get; set; } = string.Empty;
 
     [BsonElement("title")] public string Title { get; set; } = string.Empty;
+
+    // ── A unit of a project (design 7, D18): its project, its type, its tower. Null on a dealer's own stock.
+
+    [BsonElement("projectId")] public string? ProjectId { get; set; }
+    [BsonElement("unitTypeId")] public string? UnitTypeId { get; set; }
+
+    /// <summary>The unit type's name, kept in step with the type.</summary>
+    [BsonElement("unitTypeName")] public string? UnitTypeName { get; set; }
+
+    [BsonElement("tower")] public string? Tower { get; set; }
+
+    /// <summary>The unit has its own price; otherwise its price is the price list's cost-sheet total (D22).</summary>
+    [BsonElement("ownPrice")] public bool OwnPrice { get; set; }
+
+    /// <summary>The lead a blocked unit is held for (D20).</summary>
+    [BsonElement("holdLeadId")] public string? HoldLeadId { get; set; }
+
+    [BsonElement("holdLeadName")] public string? HoldLeadName { get; set; }
 }

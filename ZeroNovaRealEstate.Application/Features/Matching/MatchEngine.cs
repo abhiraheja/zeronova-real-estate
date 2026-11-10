@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using MongoDB.Driver;
 using MongoDB.Driver.Linq;
 using ZeroNovaRealEstate.Application.Features.Common;
 using ZeroNovaRealEstate.Application.Interfaces;
@@ -21,12 +22,19 @@ public sealed record MatchVerdict(bool Fits, int Score, IReadOnlyList<string> Re
 /// Runs inside the save (a dealer's stock is thousands, not millions). The <c>companyId</c> overloads are for the hold
 /// sweep, which runs with no caller.
 /// </para>
+/// <para>
+/// A project's units are matched by unit type (D24): one match per requirement and (project, unit type), pointing at the
+/// best available unit of the type, with how many fit. When that unit leaves the stock the match moves to the next
+/// one — a shown match too, without being offered again as new; with none left a still-new match drops. Saving or
+/// generating many units runs the type once, so the agent hears once per type, not once per unit.
+/// </para>
 /// </summary>
 public sealed class MatchEngine(
     IPropertyRepository properties,
     IRequirementRepository requirements,
     IMatchRepository matches,
     IEstateSettingsRepository settings,
+    IProjectRepository projects,
     IAgentNotificationProducer bell,
     TimeProvider clock,
     ILogger<MatchEngine> logger)
@@ -34,6 +42,9 @@ public sealed class MatchEngine(
     /// <summary>Tries the property against the active requirements; answers how many new matches it made.</summary>
     public async Task<int> ForPropertyAsync(PropertyDocument property, CancellationToken ct, string? companyId = null)
     {
+        if (property.ProjectId is { } projectId && property.UnitTypeId is { } unitTypeId)
+            return await ForUnitTypeAsync(projectId, unitTypeId, ct, companyId);
+
         var s = await EstateSettings.LoadAsync(settings, ct, companyId);
         var now = clock.GetUtcNow().UtcDateTime;
         var candidates = await requirements
@@ -86,13 +97,28 @@ public sealed class MatchEngine(
 
         var kept = new List<string>();
         var created = 0;
-        foreach (var property in candidates)
+        foreach (var property in candidates.Where(p => p.ProjectId is null))
         {
             var verdict = Score(property, requirement, s, now);
             if (!verdict.Fits || verdict.Score < s.MatchThreshold)
                 continue;
             kept.Add(property.Id);
             if (await matches.UpsertNewAsync(NewMatch(property, requirement, verdict, now), ct, companyId))
+                created++;
+        }
+
+        // Project units: once per unit type that has a candidate, or that this requirement already has a match to.
+        var groups = candidates.Where(p => p.ProjectId is not null && p.UnitTypeId is not null).Select(p => (p.ProjectId!, p.UnitTypeId!)).ToHashSet();
+        var existing = await matches.GetDocuments(m => m.RequirementId == requirement.Id && m.GroupKey != null, false, companyId).ToListAsync(ct);
+        foreach (var m in existing.Where(m => m.ProjectId is not null && m.UnitTypeId is not null))
+            groups.Add((m.ProjectId!, m.UnitTypeId!));
+        foreach (var (projectId, unitTypeId) in groups)
+        {
+            var group = await LoadGroupAsync(projectId, unitTypeId, s, now, ct, companyId);
+            var result = await MatchGroupAsync(group, requirement, existing.FirstOrDefault(m => m.GroupKey == group.Key), s, now, ct, companyId);
+            if (result.PropertyId is { } pointed)
+                kept.Add(pointed);
+            if (result.Created)
                 created++;
         }
         await matches.DropNewAsync(null, requirement.Id, kept, ct, companyId);
@@ -104,9 +130,176 @@ public sealed class MatchEngine(
         return created;
     }
 
-    /// <summary>Drops the still-new matches of a property that left the stock (sold, withdrawn, deleted, stale).</summary>
-    public Task DropForPropertyAsync(string propertyId, CancellationToken ct, string? companyId = null) =>
-        matches.DropNewAsync(propertyId, null, [], ct, companyId);
+    /// <summary>
+    /// Drops the still-new matches of a property that left the stock (sold, withdrawn, deleted, stale). A project unit's
+    /// matches move to the next available unit of its type instead (D24).
+    /// </summary>
+    public async Task DropForPropertyAsync(string propertyId, CancellationToken ct, string? companyId = null)
+    {
+        var unit = await properties.GetDocuments(p => p.Id == propertyId && p.ProjectId != null, true, companyId).FirstOrDefaultAsync(ct);
+        if (unit is { ProjectId: { } projectId, UnitTypeId: { } unitTypeId })
+        {
+            await ForUnitTypeAsync(projectId, unitTypeId, ct, companyId);
+            return;
+        }
+        await matches.DropNewAsync(propertyId, null, [], ct, companyId);
+    }
+
+    /// <summary>"{projectId}:{unitTypeId}" — the key of a unit type's matches (D24).</summary>
+    public static string GroupKeyOf(string projectId, string unitTypeId) => $"{projectId}:{unitTypeId}";
+
+    /// <summary>
+    /// A project's unit type against every active requirement (D24): its matches made, moved or dropped, and each agent
+    /// with new ones told once. Run once after a change to many units of the type (generated, re-priced, kept in step).
+    /// </summary>
+    public async Task<int> ForUnitTypeAsync(string projectId, string unitTypeId, CancellationToken ct, string? companyId = null)
+    {
+        var s = await EstateSettings.LoadAsync(settings, ct, companyId);
+        var now = clock.GetUtcNow().UtcDateTime;
+        var group = await LoadGroupAsync(projectId, unitTypeId, s, now, ct, companyId);
+        var active = await requirements
+            .GetDocuments(r => r.Status == RequirementStatus.Active && r.Purpose == PropertyPurpose.Sale, false, companyId)
+            .ToListAsync(ct);
+        var existing = (await matches.GetDocuments(m => m.GroupKey == group.Key, false, companyId).ToListAsync(ct))
+            .GroupBy(m => m.RequirementId).ToDictionary(g => g.Key, g => g.First());
+
+        var created = new List<RequirementDocument>();
+        foreach (var requirement in active)
+            if ((await MatchGroupAsync(group, requirement, existing.GetValueOrDefault(requirement.Id), s, now, ct, companyId)).Created)
+                created.Add(requirement);
+
+        // A requirement no longer active keeps no new match here (closing it already drops them; this covers a purpose change).
+        foreach (var stray in existing.Values.Where(m => m.Status == MatchStatus.New && active.All(r => r.Id != m.RequirementId)))
+            await matches.RemoveNewAsync(stray.Id, ct, companyId);
+
+        var what = $"{group.UnitTypeName ?? "A unit type"} in {group.ProjectName ?? "a project"}";
+        foreach (var byAgent in created.GroupBy(r => r.AgentId))
+            await TellAsync(group.CompanyId ?? companyId ?? string.Empty, byAgent.Key, byAgent.Count() == 1
+                    ? $"{what} fits {byAgent.First().LeadName ?? "a customer"}"
+                    : $"{what} fits {byAgent.Count()} of your customers",
+                group.Units.Count == 1 ? "1 unit available" : $"{group.Units.Count} units available",
+                $"/real-estate/projects/{projectId}", group.Key, ct);
+        return created.Count;
+    }
+
+    /// <summary>A unit type's available units (none when the project is gone or a partner project is stale, D21).</summary>
+    private sealed record UnitGroup(string Key, string ProjectId, string UnitTypeId, string? ProjectName, string? UnitTypeName, string? CompanyId,
+        IReadOnlyList<PropertyDocument> Units);
+
+    private async Task<UnitGroup> LoadGroupAsync(string projectId, string unitTypeId, EstateSettingsDocument s, DateTime now, CancellationToken ct,
+        string? companyId)
+    {
+        var project = await projects.GetDocument(projectId, true, companyId).FirstOrDefaultAsync(ct);
+        var open = project is { IsDeleted: false } && !EstateSettings.IsStale(project, s, now);
+        var units = open
+            ? await properties.GetDocuments(p => p.ProjectId == projectId && p.UnitTypeId == unitTypeId && p.Status == PropertyStatus.Available, false, companyId)
+                .ToListAsync(ct)
+            : [];
+        return new UnitGroup(GroupKeyOf(projectId, unitTypeId), projectId, unitTypeId, project?.Name, units.FirstOrDefault()?.UnitTypeName, project?.CompanyId,
+            units);
+    }
+
+    private sealed record GroupResult(string? PropertyId, bool Created);
+
+    /// <summary>
+    /// One requirement against one unit type. New: point at the best fitting unit, or drop when none fits. Shown or
+    /// interested: move only when the unit it points at left the stock. Rejected: history, left alone.
+    /// </summary>
+    private async Task<GroupResult> MatchGroupAsync(UnitGroup group, RequirementDocument requirement, MatchDocument? match, EstateSettingsDocument s,
+        DateTime now, CancellationToken ct, string? companyId)
+    {
+        var fits = group.Units
+            .Select(u => (Unit: u, Verdict: Score(u, requirement, s, now)))
+            .Where(x => x.Verdict.Fits && x.Verdict.Score >= s.MatchThreshold)
+            .OrderByDescending(x => x.Verdict.Score).ThenBy(x => x.Unit.PriceValue ?? decimal.MaxValue).ThenBy(x => x.Unit.Code, StringComparer.Ordinal)
+            .ToList();
+
+        if (match is null)
+        {
+            if (fits.Count == 0)
+                return new GroupResult(null, false);
+            var (unit, verdict) = fits[0];
+            var fresh = NewMatch(unit, requirement, verdict, now);
+            Group(fresh, group, unit, fits.Count);
+            try
+            {
+                var made = await matches.UpsertNewAsync(fresh, ct, companyId);
+                return new GroupResult(unit.Id, made);
+            }
+            catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey)
+            {
+                return new GroupResult(null, false);   // made by a parallel save; that one stands
+            }
+        }
+
+        if (match.Status == MatchStatus.Rejected)
+            return new GroupResult(match.PropertyId, false);
+
+        if (match.Status == MatchStatus.New)
+        {
+            if (fits.Count == 0)
+            {
+                await matches.RemoveNewAsync(match.Id, ct, companyId);
+                return new GroupResult(null, false);
+            }
+            var (unit, verdict) = fits[0];
+            var changed = match.PropertyId != unit.Id || match.Score != verdict.Score || match.AvailableInGroup != fits.Count
+                || !match.Reasons.SequenceEqual(verdict.Reasons) || match.AgentId != requirement.AgentId || match.UnitTypeName != unit.UnitTypeName
+                || match.ProjectName != group.ProjectName;
+            if (changed)
+            {
+                match.PropertyId = unit.Id;
+                match.Score = verdict.Score;
+                match.Reasons = [.. verdict.Reasons];
+                match.AgentId = requirement.AgentId;
+                match.PriceWhenMatched = unit.PriceValue;
+                Group(match, group, unit, fits.Count);
+                match.UpdatedAt = now;
+                await SaveMovedAsync(match, ct, companyId);
+            }
+            return new GroupResult(match.PropertyId, false);
+        }
+
+        // Shown or interested: history that follows the type — it moves only when its unit left the stock.
+        var stillThere = group.Units.Any(u => u.Id == match.PropertyId);
+        var moveTo = !stillThere && fits.Count > 0 ? fits[0].Unit : null;
+        if (moveTo is not null || match.AvailableInGroup != fits.Count)
+        {
+            if (moveTo is not null)
+            {
+                match.PropertyId = moveTo.Id;
+                match.PriceWhenMatched = moveTo.PriceValue;
+            }
+            match.AvailableInGroup = fits.Count;
+            match.ProjectName = group.ProjectName ?? match.ProjectName;
+            match.UpdatedAt = now;
+            await SaveMovedAsync(match, ct, companyId);
+        }
+        return new GroupResult(match.PropertyId, false);
+    }
+
+    private static void Group(MatchDocument match, UnitGroup group, PropertyDocument unit, int available)
+    {
+        match.GroupKey = group.Key;
+        match.ProjectId = group.ProjectId;
+        match.UnitTypeId = group.UnitTypeId;
+        match.ProjectName = group.ProjectName;
+        match.UnitTypeName = unit.UnitTypeName ?? group.UnitTypeName;
+        match.AvailableInGroup = available;
+    }
+
+    /// <summary>A moved match; a clash with a parallel save is left to that save.</summary>
+    private async Task SaveMovedAsync(MatchDocument match, CancellationToken ct, string? companyId)
+    {
+        try
+        {
+            await matches.UpdateAsync(match, ct, companyId);
+        }
+        catch (Exception ex) when (ex is MongoWriteException { WriteError.Category: ServerErrorCategory.DuplicateKey } or Exceptions.ValidatorException)
+        {
+            logger.LogInformation("Match {MatchId} changed by a parallel save; left as it is.", match.Id);
+        }
+    }
 
     /// <summary>
     /// Hard filters, then a score. A missing fact the customer asked for (BHK, facing, size not filled) does not rule a
@@ -246,7 +439,8 @@ public sealed class MatchEngine(
         if (r.TenantType is { } tenant && p.TenantPreferences.Count > 0 && !p.TenantPreferences.Contains(tenant))
             return no;
 
-        if (p.LastConfirmedAt < utcNow.AddDays(-7))
+        // Freshness: a project unit is kept true with its project (D21), not on its own.
+        if (p.ProjectId is null && p.LastConfirmedAt < utcNow.AddDays(-7))
             score -= 5;
 
         return new MatchVerdict(true, Math.Clamp(score, 0, 100), reasons);

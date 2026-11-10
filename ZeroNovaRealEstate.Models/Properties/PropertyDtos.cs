@@ -22,6 +22,7 @@ public enum PropertyType
     AgriculturalLand,
     IndustrialPlot,
     Pg,
+    Farmhouse,
 }
 
 /// <summary>Where a property stands (D6). Only <see cref="Available"/> (and a lapsed hold) is matched and sent to customers.</summary>
@@ -289,7 +290,8 @@ public sealed record PropertyOwnerInput(string PartyId, decimal? SharePercent, H
 
 /// <summary>
 /// A property as members see it. Owner details (<see cref="UnitNumber"/>, <see cref="OwnerExpectation"/>, owners'
-/// phones, the source dealer's phone) are null without POWV.
+/// phones, the source dealer's phone) are null without POWV — except a project unit's number, which is no owner's
+/// secret (D25). A project unit carries its project, type and tower (D18); it is never stale on its own (D21).
 /// </summary>
 public sealed record PropertyDto(
     string Id,
@@ -379,7 +381,15 @@ public sealed record PropertyDto(
     IReadOnlyList<PropertyOwnerDto> Owners,
     IReadOnlyList<Deals.OwnershipRecordDto> History,
     int OpenMatches,
-    DateTimeOffset? CreatedAt);
+    DateTimeOffset? CreatedAt,
+    string? ProjectId = null,
+    string? ProjectName = null,
+    string? UnitTypeId = null,
+    string? UnitTypeName = null,
+    string? Tower = null,
+    bool OwnPrice = false,
+    string? HoldLeadId = null,
+    string? HoldLeadName = null);
 
 public enum PropertySort
 {
@@ -416,6 +426,11 @@ public sealed class PropertySearchInput
 
     public string? Text { get; init; }
     public IReadOnlyList<CustomValueInput>? Custom { get; init; }
+    /// <summary>Only this project's units. Without it (and without <see cref="IncludeProjectUnits"/>) project units are left out.</summary>
+    public string? ProjectId { get; init; }
+
+    public bool IncludeProjectUnits { get; init; }
+
     public PropertySort Sort { get; init; } = PropertySort.Newest;
     public int Skip { get; init; }
     public int Take { get; init; } = 50;

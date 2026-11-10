@@ -199,7 +199,7 @@ public sealed record GetEstateDashboardQuery : IRequest<EstateDashboardDto>;
 
 public sealed class GetEstateDashboardHandler(
     IPropertyRepository properties, IRequirementRepository requirements, IMatchRepository matches, IEstateSettingsRepository settings,
-    Properties.PropertyMapper mapper, EstateScope scope, TimeProvider clock)
+    Properties.PropertyMapper mapper, Projects.ProjectMapper projectMapper, IProjectRepository projects, EstateScope scope, TimeProvider clock)
     : IRequestHandler<GetEstateDashboardQuery, EstateDashboardDto>
 {
     public async Task<EstateDashboardDto> Handle(GetEstateDashboardQuery request, CancellationToken ct)
@@ -210,13 +210,14 @@ public sealed class GetEstateDashboardHandler(
         var rentCut = now.AddDays(-s.RentFreshDays);
         var weekAgo = now.AddDays(-7);
 
-        var forSale = await properties.GetDocuments(p => p.Status == PropertyStatus.Available && p.Purpose == PropertyPurpose.Sale).CountAsync(ct);
-        var forRent = await properties.GetDocuments(p => p.Status == PropertyStatus.Available && p.Purpose == PropertyPurpose.Rent).CountAsync(ct);
-        var staleQuery = properties.GetDocuments(p => (p.Status == PropertyStatus.Available || p.Status == PropertyStatus.OnHold)
+        // The dealer's own stock; project units are counted per project below.
+        var forSale = await properties.GetDocuments(p => p.ProjectId == null && p.Status == PropertyStatus.Available && p.Purpose == PropertyPurpose.Sale).CountAsync(ct);
+        var forRent = await properties.GetDocuments(p => p.ProjectId == null && p.Status == PropertyStatus.Available && p.Purpose == PropertyPurpose.Rent).CountAsync(ct);
+        var staleQuery = properties.GetDocuments(p => p.ProjectId == null && (p.Status == PropertyStatus.Available || p.Status == PropertyStatus.OnHold)
             && ((p.Purpose == PropertyPurpose.Sale && p.LastConfirmedAt < saleCut) || (p.Purpose == PropertyPurpose.Rent && p.LastConfirmedAt < rentCut)));
         var stale = await staleQuery.CountAsync(ct);
         var oldest = await staleQuery.OrderBy(p => p.LastConfirmedAt).Take(5).ToListAsync(ct);
-        var added = (await properties.GetDocuments().Where(p => p.CreatedBy != null).Select(p => p.CreatedBy!.ChangedDate).ToListAsync(ct))
+        var added = (await properties.GetDocuments().Where(p => p.ProjectId == null && p.CreatedBy != null).Select(p => p.CreatedBy!.ChangedDate).ToListAsync(ct))
             .Count(d => d >= weekAgo);
 
         var reqQuery = requirements.GetDocuments(r => r.Status == RequirementStatus.Active);
@@ -231,7 +232,11 @@ public sealed class GetEstateDashboardHandler(
         var newMatches = await matchQuery.CountAsync(ct);
         var latest = await matchQuery.OrderByDescending(m => m.CreatedAt).Take(10).ToListAsync(ct);
 
+        var projectSummaries = scope.Has(Models.Constants.EstatePermissions.PropertyView) || scope.Has(Models.Constants.EstatePermissions.PropertyManage)
+            ? await projectMapper.SummariesAsync(await projects.GetDocuments().OrderBy(p => p.Name).Take(100).ToListAsync(ct), ct)
+            : [];
+
         return new EstateDashboardDto(forSale, forRent, stale, active, newMatches, added,
-            await MatchMapping.ManyAsync(latest, properties, requirements, ct), await mapper.ManyAsync(oldest, ct));
+            await MatchMapping.ManyAsync(latest, properties, requirements, ct), await mapper.ManyAsync(oldest, ct), projectSummaries);
     }
 }

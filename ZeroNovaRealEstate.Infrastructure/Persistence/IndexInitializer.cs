@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using MongoDB.Bson;
 using MongoDB.Driver;
 using ZeroNovaRealEstate.Domain.Documents;
 
@@ -30,7 +31,38 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                     new CreateIndexOptions { Name = "company_owner_phones" }),
                 new CreateIndexModel<PropertyDocument>(Builders<PropertyDocument>.IndexKeys.Ascending(p => p.Status).Ascending(p => p.HoldUntil),
                     new CreateIndexOptions { Name = "status_hold_until" }),
+                new CreateIndexModel<PropertyDocument>(Builders<PropertyDocument>.IndexKeys
+                    .Ascending(p => p.CompanyId).Ascending(p => p.ProjectId).Ascending(p => p.UnitTypeId).Ascending(p => p.Status),
+                    new CreateIndexOptions { Name = "company_project_type_status" }),
             ], ct);
+            // A unit number is never made twice in a project (D19); a dealer's own stock (no project) is not held to it.
+            await properties.Indexes.CreateOneAsync(new CreateIndexModel<PropertyDocument>(
+                Builders<PropertyDocument>.IndexKeys.Ascending(p => p.CompanyId).Ascending(p => p.ProjectId).Ascending(p => p.UnitNumber),
+                new CreateIndexOptions<PropertyDocument>
+                {
+                    Name = "company_project_unit_unique",
+                    Unique = true,
+                    PartialFilterExpression = Builders<PropertyDocument>.Filter.Eq(p => p.IsDeleted, false)
+                        & Builders<PropertyDocument>.Filter.Type(p => p.ProjectId, BsonType.String),
+                }), cancellationToken: ct);
+
+            var projects = database.GetCollection<ProjectDocument>("re_projects");
+            await projects.Indexes.CreateOneAsync(new CreateIndexModel<ProjectDocument>(
+                Builders<ProjectDocument>.IndexKeys.Ascending(p => p.CompanyId).Ascending(p => p.Code),
+                new CreateIndexOptions { Name = "company_code_unique", Unique = true }), cancellationToken: ct);
+            var unitTypes = database.GetCollection<UnitTypeDocument>("re_unit_types");
+            await unitTypes.Indexes.CreateOneAsync(new CreateIndexModel<UnitTypeDocument>(
+                Builders<UnitTypeDocument>.IndexKeys.Ascending(t => t.CompanyId).Ascending(t => t.ProjectId),
+                new CreateIndexOptions { Name = "company_project" }), cancellationToken: ct);
+            // Versions of a price list are numbered once: two saves at the same moment cannot both be version 3.
+            var priceLists = database.GetCollection<PriceListDocument>("re_price_lists");
+            await priceLists.Indexes.CreateOneAsync(new CreateIndexModel<PriceListDocument>(
+                Builders<PriceListDocument>.IndexKeys.Ascending(l => l.CompanyId).Ascending(l => l.ProjectId).Ascending(l => l.ListVersion),
+                new CreateIndexOptions { Name = "company_project_version_unique", Unique = true }), cancellationToken: ct);
+            var plans = database.GetCollection<PaymentPlanDocument>("re_payment_plans");
+            await plans.Indexes.CreateOneAsync(new CreateIndexModel<PaymentPlanDocument>(
+                Builders<PaymentPlanDocument>.IndexKeys.Ascending(x => x.CompanyId).Ascending(x => x.ProjectId),
+                new CreateIndexOptions { Name = "company_project" }), cancellationToken: ct);
 
             var parties = database.GetCollection<PartyDocument>("re_parties");
             await parties.Indexes.CreateManyAsync(
@@ -66,6 +98,18 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                     .Ascending(m => m.CompanyId).Ascending(m => m.AgentId).Ascending(m => m.Status).Descending(m => m.CreatedAt),
                     new CreateIndexOptions { Name = "company_agent_status_created" }),
             ], ct);
+            // One match per requirement and project unit type (D24).
+            await matches.Indexes.CreateOneAsync(new CreateIndexModel<MatchDocument>(
+                Builders<MatchDocument>.IndexKeys.Ascending(m => m.CompanyId).Ascending(m => m.RequirementId).Ascending(m => m.GroupKey),
+                new CreateIndexOptions<MatchDocument>
+                {
+                    Name = "company_requirement_group_unique",
+                    Unique = true,
+                    PartialFilterExpression = Builders<MatchDocument>.Filter.Type(m => m.GroupKey, BsonType.String),
+                }), cancellationToken: ct);
+            await matches.Indexes.CreateOneAsync(new CreateIndexModel<MatchDocument>(
+                Builders<MatchDocument>.IndexKeys.Ascending(m => m.CompanyId).Ascending(m => m.GroupKey),
+                new CreateIndexOptions { Name = "company_group" }), cancellationToken: ct);
 
             var visits = database.GetCollection<VisitDocument>("re_visits");
             await visits.Indexes.CreateManyAsync(
@@ -84,6 +128,8 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                     new CreateIndexOptions { Name = "token_unique", Unique = true }),
                 new CreateIndexModel<ShareDocument>(Builders<ShareDocument>.IndexKeys.Ascending(x => x.CompanyId).Ascending(x => x.PropertyId),
                     new CreateIndexOptions { Name = "company_property" }),
+                new CreateIndexModel<ShareDocument>(Builders<ShareDocument>.IndexKeys.Ascending(x => x.CompanyId).Ascending(x => x.ProjectId),
+                    new CreateIndexOptions { Name = "company_project" }),
             ], ct);
 
             var deals = database.GetCollection<DealDocument>("re_deals");

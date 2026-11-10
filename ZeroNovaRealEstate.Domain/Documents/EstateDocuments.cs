@@ -95,6 +95,20 @@ public sealed class MatchDocument : CompanyDocumentBase
     [BsonElement("priceWhenMatched")] public decimal? PriceWhenMatched { get; set; }
     [BsonElement("createdAt")] public DateTime CreatedAt { get; set; }
     [BsonElement("updatedAt")] public DateTime UpdatedAt { get; set; }
+
+    // ── A match to a project's unit type (D24): one per requirement and (project, unit type), pointing at the best
+    // available unit of the type; it moves to the next one when that unit leaves the stock.
+
+    /// <summary><c>{projectId}:{unitTypeId}</c>; null for a match to a single property.</summary>
+    [BsonElement("groupKey")] [BsonIgnoreIfNull] public string? GroupKey { get; set; }
+
+    [BsonElement("projectId")] [BsonIgnoreIfNull] public string? ProjectId { get; set; }
+    [BsonElement("projectName")] [BsonIgnoreIfNull] public string? ProjectName { get; set; }
+    [BsonElement("unitTypeId")] [BsonIgnoreIfNull] public string? UnitTypeId { get; set; }
+    [BsonElement("unitTypeName")] [BsonIgnoreIfNull] public string? UnitTypeName { get; set; }
+
+    /// <summary>How many available units of the type fit the requirement.</summary>
+    [BsonElement("availableInGroup")] [BsonIgnoreIfNull] public int? AvailableInGroup { get; set; }
 }
 
 /// <summary>The dealer's settings (design 4.2). One per company; missing = the defaults.</summary>
@@ -155,11 +169,15 @@ public sealed class CounterDocument : CompanyDocumentBase
     [BsonElement("value")] public long Value { get; set; }
 }
 
-/// <summary>A site visit (M2). A reminder bell goes to the agent once, an hour before.</summary>
+/// <summary>
+/// A site visit (M2) to a property, or to a project (design 7.3: <see cref="ProjectId"/>, the unit optional). A reminder
+/// bell goes to the agent once, an hour before.
+/// </summary>
 [DocumentName("re_visits")]
 public sealed class VisitDocument : CompanyDocumentBase
 {
-    [BsonElement("propertyId")] public required string PropertyId { get; set; }
+    [BsonElement("propertyId")] public string? PropertyId { get; set; }
+    [BsonElement("projectId")] public string? ProjectId { get; set; }
     [BsonElement("requirementId")] public string? RequirementId { get; set; }
     [BsonElement("leadId")] public required string LeadId { get; set; }
     [BsonElement("leadName")] public string? LeadName { get; set; }
@@ -181,12 +199,13 @@ public sealed class VisitDocument : CompanyDocumentBase
     [BsonElement("reminded")] public bool Reminded { get; set; }
 }
 
-/// <summary>A share link (M2): an unguessable token, what it shows, and how often it was opened.</summary>
+/// <summary>A share link (M2): an unguessable token, what it shows (a property or a project), and how often it was opened.</summary>
 [DocumentName("re_shares")]
 public sealed class ShareDocument : CompanyDocumentBase
 {
     [BsonElement("token")] public required string Token { get; set; }
-    [BsonElement("propertyId")] public required string PropertyId { get; set; }
+    [BsonElement("propertyId")] public string? PropertyId { get; set; }
+    [BsonElement("projectId")] public string? ProjectId { get; set; }
     [BsonElement("requirementId")] public string? RequirementId { get; set; }
     [BsonElement("createdAt")] public DateTime CreatedAt { get; set; }
     [BsonElement("opens")] public int Opens { get; set; }
