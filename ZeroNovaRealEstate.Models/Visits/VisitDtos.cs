@@ -29,6 +29,10 @@ public sealed class VisitInput
     public string? ProjectId { get; init; }
     public string? RequirementId { get; init; }
     public string LeadId { get; init; } = string.Empty;
+
+    /// <summary>The lead's contact (C2); empty = the requirement's or the enquiry's.</summary>
+    public string? ContactId { get; init; }
+
     public string? LeadName { get; init; }
     public string? LeadPhone { get; init; }
 

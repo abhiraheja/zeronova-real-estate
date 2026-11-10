@@ -31,6 +31,9 @@ public sealed class PartyDocument : CompanyDocumentBase
     [BsonElement("panSealed")] public string? PanSealed { get; set; }
     [BsonElement("panLast4")] public string? PanLast4 { get; set; }
     [BsonElement("leadId")] public string? LeadId { get; set; }
+
+    /// <summary>The zeronova-lead contact this person is (C2), when known — the customer's key.</summary>
+    [BsonElement("contactId")] public string? ContactId { get; set; }
 }
 
 /// <summary>What a buyer or tenant wants (design 4.4). Sizes in sq ft as well as entered; localities as keys for matching.</summary>
@@ -38,6 +41,10 @@ public sealed class PartyDocument : CompanyDocumentBase
 public sealed class RequirementDocument : CompanyDocumentBase
 {
     [BsonElement("leadId")] public required string LeadId { get; set; }
+
+    /// <summary>The lead's contact in zeronova-lead (C2): the customer's key. From the app's lead picker, else learned from an enquiry.</summary>
+    [BsonElement("contactId")] public string? ContactId { get; set; }
+
     [BsonElement("leadName")] public string? LeadName { get; set; }
     [BsonElement("leadPhone")] public string? LeadPhone { get; set; }
     [BsonElement("agentId")] public required string AgentId { get; set; }
@@ -193,6 +200,10 @@ public sealed class VisitDocument : CompanyDocumentBase
     [BsonElement("projectId")] public string? ProjectId { get; set; }
     [BsonElement("requirementId")] public string? RequirementId { get; set; }
     [BsonElement("leadId")] public required string LeadId { get; set; }
+
+    /// <summary>The lead's contact (C2): from the requirement or the enquiry, else learned from an enquiry.</summary>
+    [BsonElement("contactId")] public string? ContactId { get; set; }
+
     [BsonElement("leadName")] public string? LeadName { get; set; }
     [BsonElement("leadPhone")] public string? LeadPhone { get; set; }
     [BsonElement("agentId")] public required string AgentId { get; set; }

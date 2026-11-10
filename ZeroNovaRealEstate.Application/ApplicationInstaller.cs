@@ -48,6 +48,8 @@ public static class ApplicationInstaller
         services.AddScoped<Features.Projects.ProjectUnitSync>();
         // Enquiries (C1): counts on properties, projects and unit types.
         services.AddScoped<Features.Enquiries.EnquiryCounts>();
+        // Customers (C2): the Customers list's summaries, kept on every write of a customer's rows, and the contact links.
+        services.AddScoped<Features.Customers.CustomerBook>();
 
         return services;
     }

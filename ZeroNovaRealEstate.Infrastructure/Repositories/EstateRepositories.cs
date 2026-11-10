@@ -38,10 +38,60 @@ public sealed class PaymentPlanRepository(IMongoDatabase database, IRequestConte
     : CompanyRepositoryBase<PaymentPlanDocument>(database, context), IPaymentPlanRepository;
 
 public sealed class PartyRepository(IMongoDatabase database, IRequestContext context)
-    : CompanyRepositoryBase<PartyDocument>(database, context), IPartyRepository;
+    : CompanyRepositoryBase<PartyDocument>(database, context), IPartyRepository
+{
+    public async Task<long> BackfillContactAsync(string leadId, string contactId, CancellationToken ct = default, string? companyId = null)
+    {
+        var company = ResolveCompanyId(companyId);
+        var result = await Collection.UpdateManyAsync(p => p.CompanyId == company && p.LeadId == leadId && p.ContactId == null && !p.IsDeleted,
+            Builders<PartyDocument>.Update.Set(p => p.ContactId, contactId).Inc(p => p.Version, 1), cancellationToken: ct);
+        return result.ModifiedCount;
+    }
+}
 
 public sealed class RequirementRepository(IMongoDatabase database, IRequestContext context)
-    : CompanyRepositoryBase<RequirementDocument>(database, context), IRequirementRepository;
+    : CompanyRepositoryBase<RequirementDocument>(database, context), IRequirementRepository
+{
+    public async Task<long> BackfillContactAsync(string leadId, string contactId, CancellationToken ct = default, string? companyId = null)
+    {
+        var company = ResolveCompanyId(companyId);
+        var result = await Collection.UpdateManyAsync(r => r.CompanyId == company && r.LeadId == leadId && r.ContactId == null && !r.IsDeleted,
+            Builders<RequirementDocument>.Update.Set(r => r.ContactId, contactId).Inc(r => r.Version, 1), cancellationToken: ct);
+        return result.ModifiedCount;
+    }
+}
+
+public sealed class CustomerRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<CustomerDocument>(database, context), ICustomerRepository
+{
+    public async Task UpsertAsync(CustomerDocument customer, CancellationToken ct = default, string? companyId = null)
+    {
+        var company = ResolveCompanyId(companyId);
+        customer.CompanyId = company;
+        var byKey = Builders<CustomerDocument>.Filter.Where(c => c.CompanyId == company && c.Key == customer.Key);
+        for (var attempt = 0; ; attempt++)
+        {
+            customer.Id = await Collection.Find(byKey).Project(c => c.Id).FirstOrDefaultAsync(ct) ?? GetNewId;
+            try
+            {
+                await Collection.ReplaceOneAsync(byKey, customer, new ReplaceOptions { IsUpsert = true }, ct);
+                return;
+            }
+            catch (MongoWriteException ex) when (ex.WriteError.Category == ServerErrorCategory.DuplicateKey && attempt == 0)
+            {
+                // Made by a parallel refresh a moment ago; replace that one.
+            }
+        }
+    }
+
+    public Task RemoveKeysAsync(IReadOnlyCollection<string> keys, CancellationToken ct = default, string? companyId = null)
+    {
+        if (keys.Count == 0)
+            return Task.CompletedTask;
+        var company = ResolveCompanyId(companyId);
+        return Collection.DeleteManyAsync(c => c.CompanyId == company && keys.Contains(c.Key), ct);
+    }
+}
 
 public sealed class MatchRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<MatchDocument>(database, context), IMatchRepository
@@ -105,6 +155,14 @@ public sealed class VisitRepository(IMongoDatabase database, IRequestContext con
     public async Task<IReadOnlyList<VisitDocument>> DueForReminderAsync(DateTime until, int take, CancellationToken ct = default) =>
         await Collection.Find(v => v.Status == Models.Visits.VisitStatus.Scheduled && !v.Reminded && !v.IsDeleted && v.At <= until)
             .Limit(take).ToListAsync(ct);
+
+    public async Task<long> BackfillContactAsync(string leadId, string contactId, CancellationToken ct = default, string? companyId = null)
+    {
+        var company = ResolveCompanyId(companyId);
+        var result = await Collection.UpdateManyAsync(v => v.CompanyId == company && v.LeadId == leadId && v.ContactId == null && !v.IsDeleted,
+            Builders<VisitDocument>.Update.Set(v => v.ContactId, contactId).Inc(v => v.Version, 1), cancellationToken: ct);
+        return result.ModifiedCount;
+    }
 }
 
 public sealed class ShareRepository(IMongoDatabase database, IRequestContext context)

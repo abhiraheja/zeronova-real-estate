@@ -27,6 +27,9 @@ public sealed class PartyInput
 
     /// <summary>The lead (zeronova-lead) this person is, when they are one.</summary>
     public string? LeadId { get; init; }
+
+    /// <summary>The zeronova-lead contact this person is (C2); empty keeps the stored one for the same lead.</summary>
+    public string? ContactId { get; init; }
 }
 
 /// <summary>A party as members see it: Aadhaar and PAN only as their last four characters; phones only with POWV.</summary>
@@ -42,4 +45,5 @@ public sealed record PartyDto(
     string? AadhaarLast4,
     string? PanLast4,
     string? LeadId,
-    IReadOnlyList<string> PropertyIds);
+    IReadOnlyList<string> PropertyIds,
+    string? ContactId = null);

@@ -36,7 +36,8 @@ public sealed partial class SavePartyValidator : AbstractValidator<SavePartyComm
 }
 
 public sealed class SavePartyHandler(
-    IPartyRepository parties, IPropertyRepository properties, ISecretProtector secrets, EstateScope scope, IRequestContext context, PartyContacts contacts)
+    IPartyRepository parties, IPropertyRepository properties, ISecretProtector secrets, EstateScope scope, IRequestContext context, PartyContacts contacts,
+    Customers.CustomerBook customers)
     : IRequestHandler<SavePartyCommand, PartyDto>
 {
     public async Task<PartyDto> Handle(SavePartyCommand request, CancellationToken ct)
@@ -54,7 +55,11 @@ public sealed class SavePartyHandler(
         party.WhatsApp = EstateText.Phone(input.WhatsApp);
         party.Email = EstateText.Clean(input.Email);
         party.Address = EstateText.Clean(input.Address);
+        var (oldContact, oldLead) = (party.ContactId, party.LeadId);
         party.LeadId = EstateText.Clean(input.LeadId);
+        // The customer's key (C2): the contact given, else the one kept for this lead, else the lead's as our rows know it.
+        party.ContactId = EstateText.Clean(input.ContactId) ?? (party.LeadId is not null && party.LeadId == oldLead ? oldContact : null)
+            ?? await customers.ContactOfLeadAsync(party.LeadId, ct);
 
         if (input.Aadhaar?.Replace(" ", "") is { Length: 12 } aadhaar)
         {
@@ -72,6 +77,10 @@ public sealed class SavePartyHandler(
         else
             await parties.UpdateAsync(party, ct);
         await contacts.SyncAsync(party, ct);
+        if (party.ContactId is not null || party.LeadId is not null)
+            await customers.TouchAsync(party.ContactId, [party.LeadId], ct);
+        if ((oldContact is not null || oldLead is not null) && (oldContact != party.ContactId || oldLead != party.LeadId))
+            await customers.TouchAsync(oldContact, [oldLead], ct);
         return await PartyMapping.ToDtoAsync(party, properties, scope, ct);
     }
 
@@ -126,6 +135,6 @@ public static class PartyMapping
         var owned = await properties.GetDocuments(x => x.Owners.Any(o => o.PartyId == p.Id)).Select(x => x.Id).ToListAsync(ct);
         var sees = scope.SeesOwners;
         return new PartyDto(p.Id, p.Name, p.Relation, p.RelativeName, sees ? p.Phone : null, sees ? p.WhatsApp : null, sees ? p.Email : null,
-            sees ? p.Address : null, p.AadhaarLast4, p.PanLast4, p.LeadId, owned);
+            sees ? p.Address : null, p.AadhaarLast4, p.PanLast4, p.LeadId, owned, p.ContactId);
     }
 }

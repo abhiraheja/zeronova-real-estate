@@ -32,7 +32,7 @@ public sealed class SaveRequirementValidator : AbstractValidator<SaveRequirement
 
 public sealed class SaveRequirementHandler(
     IRequirementRepository requirements, IEstateSettingsRepository settings, ILocalityRepository localities, IMatchRepository matches,
-    MatchEngine engine, EstateScope scope, IEnquiryRepository enquiries, TimeProvider clock)
+    MatchEngine engine, EstateScope scope, IEnquiryRepository enquiries, TimeProvider clock, Customers.CustomerBook customers)
     : IRequestHandler<SaveRequirementCommand, RequirementDto>
 {
     public async Task<RequirementDto> Handle(SaveRequirementCommand request, CancellationToken ct)
@@ -54,7 +54,12 @@ public sealed class SaveRequirementHandler(
         if (agent is not null && agent != scope.UserId && !scope.SeesAllRequirements)
             throw new ValidatorException("Only a manager can give a customer to another agent.");
         requirement.AgentId = agent ?? requirement.AgentId;
-        requirement.LeadId = input.LeadId.Trim();
+        var (oldContact, oldLead) = (requirement.ContactId, requirement.LeadId);
+        var lead = input.LeadId.Trim();
+        // The customer's key (C2): the lead picker's contact, else the enquiry's, else the one kept for this lead, else learned.
+        requirement.ContactId = EstateText.Clean(input.ContactId) ?? enquiry?.ContactId ?? (oldLead == lead ? oldContact : null)
+            ?? await customers.ContactOfLeadAsync(lead, ct);
+        requirement.LeadId = lead;
         requirement.LeadName = EstateText.Clean(input.LeadName);
         requirement.LeadPhone = EstateText.Phone(input.LeadPhone);
         requirement.Purpose = input.Purpose;
@@ -92,6 +97,9 @@ public sealed class SaveRequirementHandler(
         }
 
         await engine.ForRequirementAsync(requirement, ct);
+        await customers.TouchAsync(requirement.ContactId, [requirement.LeadId], ct);
+        if (oldLead.Length > 0 && oldLead != requirement.LeadId)
+            await customers.TouchAsync(oldContact, [oldLead], ct);
         return await RequirementMapping.ToDtoAsync(requirement, matches, ct);
     }
 }
@@ -99,7 +107,8 @@ public sealed class SaveRequirementHandler(
 /// <summary>Closes (bought or rented — through the dealer or elsewhere), loses, pauses or reopens a requirement.</summary>
 public sealed record CloseRequirementCommand(string RequirementId, CloseRequirementInput Input) : IRequest<RequirementDto>;
 
-public sealed class CloseRequirementHandler(IRequirementRepository requirements, IMatchRepository matches, MatchEngine engine, EstateScope scope)
+public sealed class CloseRequirementHandler(IRequirementRepository requirements, IMatchRepository matches, MatchEngine engine, EstateScope scope,
+    Customers.CustomerBook customers)
     : IRequestHandler<CloseRequirementCommand, RequirementDto>
 {
     public async Task<RequirementDto> Handle(CloseRequirementCommand request, CancellationToken ct)
@@ -110,6 +119,7 @@ public sealed class CloseRequirementHandler(IRequirementRepository requirements,
         requirement.CloseReason = request.Input.Status is RequirementStatus.Closed or RequirementStatus.Lost ? EstateText.Clean(request.Input.Reason) : null;
         await requirements.UpdateAsync(requirement, ct);
         await engine.ForRequirementAsync(requirement, ct);
+        await customers.TouchAsync(requirement.ContactId, [requirement.LeadId], ct);
         return await RequirementMapping.ToDtoAsync(requirement, matches, ct);
     }
 }
@@ -174,6 +184,6 @@ public static class RequirementMapping
         return [.. rows.Select(r => new RequirementDto(r.Id, r.LeadId, r.LeadName, r.LeadPhone, r.AgentId, r.Status, r.CloseReason, r.Purpose, r.Types,
             r.City, r.Localities, r.BudgetMin, r.BudgetMax, AreaMath.Dto(r.SizeMin), AreaMath.Dto(r.SizeMax), r.Bhk, r.Facings, r.CornerOnly,
             r.ParkFacingOnly, r.Floor, r.NeedsLift, r.NeedsParking, r.Furnishings, r.TenantType, r.NeededBy, r.Notes,
-            counts.GetValueOrDefault(r.Id), r.CreatedBy?.ChangedDate))];
+            counts.GetValueOrDefault(r.Id), r.CreatedBy?.ChangedDate, r.ContactId))];
     }
 }

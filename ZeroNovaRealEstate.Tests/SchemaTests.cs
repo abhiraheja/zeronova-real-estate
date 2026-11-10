@@ -50,6 +50,9 @@ public sealed class SchemaTests
             "VISIT_BOOKED", "NOT_AVAILABLE", "UNREACHABLE", "enquiries: EnquiryCountsDto!", "last7Days: Int!", "bySource: [EnquirySourceCountDto!]!",
             "enquiriesToday: Int!", "enquiriesThisWeek: Int!", "openEnquiries: Int!", "enquiryId: String", "wanted: String",
             "BUILDER_FLOOR", "NORTH_EAST", "SQ_YD", "MARLA", "price: Decimal", "sizeSqFt: Decimal",
+            "ZeroNova_estateCustomers(", "ZeroNova_estateCustomer(", "EstateCustomerFilterInput", "EstateCustomerPageDto", "EstateCustomerDashboardDto",
+            "hasOpenRequirement: Boolean", "highlighted: Boolean!", "unmet: [CustomerUnmetDto!]!", "ownedProperties: [CustomerOwnedPropertyDto!]",
+            "deals: [DealDto!]", "tenancies: [TenancyDto!]", "dealsByStage: [CustomerStageCountDto!]", "contactId: String", "leadIds: [String!]!",
         })
             Assert.Contains(field, sdl);
 

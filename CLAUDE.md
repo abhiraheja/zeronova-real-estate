@@ -17,7 +17,7 @@ zeronova-study.
 
 ```
 ZeroNovaRealEstate.Api/            Program, Supabase auth, [RequirePermission], GraphQL (Graphql/EstateResolvers.cs)
-ZeroNovaRealEstate.Application/    Features/{Properties,Parties,Requirements,Matching,Enquiries,Settings,Common}, interfaces
+ZeroNovaRealEstate.Application/    Features/{Properties,Parties,Requirements,Matching,Enquiries,Customers,Settings,Common}, interfaces
 ZeroNovaRealEstate.Domain/         Documents (re_* collections)
 ZeroNovaRealEstate.Infrastructure/ repositories, indexes, the hold sweep, installers
 ZeroNovaRealEstate.Models/         DTOs, inputs, enums, permissions (EstatePermissions), options, events

@@ -37,7 +37,7 @@ public sealed class ScheduleVisitValidator : AbstractValidator<ScheduleVisitComm
 }
 
 public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepository properties, IProjectRepository projects, IRequirementRepository requirements,
-    VisitMapper mapper, EstateScope scope, TimeProvider clock, IEnquiryRepository enquiries)
+    VisitMapper mapper, EstateScope scope, TimeProvider clock, IEnquiryRepository enquiries, Customers.CustomerBook customers)
     : IRequestHandler<ScheduleVisitCommand, VisitDto>
 {
     public async Task<VisitDto> Handle(ScheduleVisitCommand request, CancellationToken ct)
@@ -61,17 +61,24 @@ public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepos
         }
         if (input.At < clock.GetUtcNow().AddMinutes(-30))
             throw new ValidatorException("A visit is scheduled for a time to come.");
+        RequirementDocument? requirement = null;
         if (EstateText.Clean(input.RequirementId) is { } requirementId)
-            scope.RequireWork(await requirements.GetDocument(requirementId).FirstOrDefaultAsync(ct) ?? throw new ValidatorException("Requirement not found."));
+        {
+            requirement = await requirements.GetDocument(requirementId).FirstOrDefaultAsync(ct) ?? throw new ValidatorException("Requirement not found.");
+            scope.RequireWork(requirement);
+        }
         var agent = EstateText.Clean(input.AgentId) ?? scope.UserId;
         if (agent != scope.UserId && !scope.SeesAllRequirements)
             throw new ValidatorException("Only a manager can give a visit to another agent.");
         // Booked from an enquiry (D31): the caller's to work, and the same customer.
         var enquiry = await Enquiries.EnquiryLinks.ForLinkAsync(enquiries, scope, input.EnquiryId, input.LeadId.Trim(), ct);
+        var lead = input.LeadId.Trim();
+        var contact = EstateText.Clean(input.ContactId) ?? (requirement?.LeadId == lead ? requirement.ContactId : null) ?? enquiry?.ContactId
+            ?? await customers.ContactOfLeadAsync(lead, ct);
 
         var visit = new VisitDocument
         {
-            Id = visits.GetNewId, PropertyId = property?.Id, ProjectId = project?.Id, RequirementId = EstateText.Clean(input.RequirementId), LeadId = input.LeadId.Trim(),
+            Id = visits.GetNewId, PropertyId = property?.Id, ProjectId = project?.Id, RequirementId = EstateText.Clean(input.RequirementId), LeadId = lead, ContactId = contact,
             LeadName = EstateText.Clean(input.LeadName), LeadPhone = EstateText.Phone(input.LeadPhone), AgentId = agent, At = input.At.UtcDateTime,
             MeetingPoint = EstateText.Clean(input.MeetingPoint), Notes = EstateText.Clean(input.Notes),
         };
@@ -81,6 +88,7 @@ public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepos
             Enquiries.EnquiryLinks.ToVisit(enquiry, visit.Id, clock.GetUtcNow().UtcDateTime);
             await enquiries.UpdateAsync(enquiry, ct);
         }
+        await customers.TouchAsync(visit.ContactId, [visit.LeadId], ct);
         return await mapper.OneAsync(visit, ct);
     }
 }
@@ -88,7 +96,8 @@ public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepos
 /// <summary>A new time for a scheduled visit (the reminder goes again).</summary>
 public sealed record RescheduleVisitCommand(string VisitId, DateTimeOffset At) : IRequest<VisitDto>;
 
-public sealed class RescheduleVisitHandler(IVisitRepository visits, VisitMapper mapper, EstateScope scope) : IRequestHandler<RescheduleVisitCommand, VisitDto>
+public sealed class RescheduleVisitHandler(IVisitRepository visits, VisitMapper mapper, EstateScope scope, Customers.CustomerBook customers)
+    : IRequestHandler<RescheduleVisitCommand, VisitDto>
 {
     public async Task<VisitDto> Handle(RescheduleVisitCommand request, CancellationToken ct)
     {
@@ -98,6 +107,7 @@ public sealed class RescheduleVisitHandler(IVisitRepository visits, VisitMapper 
         visit.At = request.At.UtcDateTime;
         visit.Reminded = false;
         await visits.UpdateAsync(visit, ct);
+        await customers.TouchAsync(visit.ContactId, [visit.LeadId], ct);
         return await mapper.OneAsync(visit, ct);
     }
 }
@@ -110,7 +120,7 @@ public sealed class RescheduleVisitHandler(IVisitRepository visits, VisitMapper 
 public sealed record RecordVisitResultCommand(string VisitId, VisitResultInput Input) : IRequest<VisitDto>;
 
 public sealed class RecordVisitResultHandler(IVisitRepository visits, IMatchRepository matches, IPropertyRepository properties, VisitMapper mapper, EstateScope scope,
-    TimeProvider clock)
+    TimeProvider clock, Customers.CustomerBook customers)
     : IRequestHandler<RecordVisitResultCommand, VisitDto>
 {
     public async Task<VisitDto> Handle(RecordVisitResultCommand request, CancellationToken ct)
@@ -148,6 +158,7 @@ public sealed class RecordVisitResultHandler(IVisitRepository visits, IMatchRepo
                 await matches.UpdateAsync(match, ct);
             }
         }
+        await customers.TouchAsync(visit.ContactId, [visit.LeadId], ct);
         return await mapper.OneAsync(visit, ct);
     }
 }

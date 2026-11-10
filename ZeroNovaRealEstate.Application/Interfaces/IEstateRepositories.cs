@@ -24,9 +24,26 @@ public interface IPriceListRepository : ICompanyRepositoryBase<PriceListDocument
 
 public interface IPaymentPlanRepository : ICompanyRepositoryBase<PaymentPlanDocument>;
 
-public interface IPartyRepository : ICompanyRepositoryBase<PartyDocument>;
+/// <summary>A row that belongs to a lead and may learn the lead's contact (C2).</summary>
+public interface IContactBackfill
+{
+    /// <summary>Sets <paramref name="contactId"/> on the lead's rows that have none (idempotent). How many changed.</summary>
+    Task<long> BackfillContactAsync(string leadId, string contactId, CancellationToken ct = default, string? companyId = null);
+}
 
-public interface IRequirementRepository : ICompanyRepositoryBase<RequirementDocument>;
+public interface IPartyRepository : ICompanyRepositoryBase<PartyDocument>, IContactBackfill;
+
+public interface IRequirementRepository : ICompanyRepositoryBase<RequirementDocument>, IContactBackfill;
+
+/// <summary>The Customers list's summaries (C2): one per customer key, replaced whole on every refresh.</summary>
+public interface ICustomerRepository : ICompanyRepositoryBase<CustomerDocument>
+{
+    /// <summary>Writes the summary for its <see cref="CustomerDocument.Key"/>, keeping the stored id.</summary>
+    Task UpsertAsync(CustomerDocument customer, CancellationToken ct = default, string? companyId = null);
+
+    /// <summary>Removes the summaries with these keys (a lead's row merged into its contact's, or nothing left).</summary>
+    Task RemoveKeysAsync(IReadOnlyCollection<string> keys, CancellationToken ct = default, string? companyId = null);
+}
 
 public interface IMatchRepository : ICompanyRepositoryBase<MatchDocument>
 {
@@ -43,7 +60,7 @@ public interface IMatchRepository : ICompanyRepositoryBase<MatchDocument>
     Task RemoveNewAsync(string matchId, CancellationToken ct = default, string? companyId = null);
 }
 
-public interface IVisitRepository : ICompanyRepositoryBase<VisitDocument>
+public interface IVisitRepository : ICompanyRepositoryBase<VisitDocument>, IContactBackfill
 {
     /// <summary>Scheduled visits starting before <paramref name="until"/> and not yet reminded, across companies — the reminder job's read.</summary>
     Task<IReadOnlyList<VisitDocument>> DueForReminderAsync(DateTime until, int take, CancellationToken ct = default);

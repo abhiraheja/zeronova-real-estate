@@ -250,6 +250,56 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                     new CreateIndexOptions { Name = "company_contact" }),
             ], ct);
 
+            // Customers (C2): a row's contact for the customer's dashboard and summary; the summaries by key, last activity
+            // (the list's order), agent, requirement (highlighted) and lead.
+            await requirements.Indexes.CreateOneAsync(new CreateIndexModel<RequirementDocument>(
+                Builders<RequirementDocument>.IndexKeys.Ascending(r => r.CompanyId).Ascending(r => r.ContactId),
+                new CreateIndexOptions { Name = "company_contact" }), cancellationToken: ct);
+            await visits.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<VisitDocument>(Builders<VisitDocument>.IndexKeys.Ascending(v => v.CompanyId).Ascending(v => v.LeadId),
+                    new CreateIndexOptions { Name = "company_lead" }),
+                new CreateIndexModel<VisitDocument>(Builders<VisitDocument>.IndexKeys.Ascending(v => v.CompanyId).Ascending(v => v.ContactId),
+                    new CreateIndexOptions { Name = "company_contact" }),
+            ], ct);
+            await parties.Indexes.CreateOneAsync(new CreateIndexModel<PartyDocument>(
+                Builders<PartyDocument>.IndexKeys.Ascending(p => p.CompanyId).Ascending(p => p.ContactId),
+                new CreateIndexOptions { Name = "company_contact" }), cancellationToken: ct);
+            await deals.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<DealDocument>(Builders<DealDocument>.IndexKeys.Ascending(d => d.CompanyId).Ascending(d => d.LeadId),
+                    new CreateIndexOptions { Name = "company_lead" }),
+                new CreateIndexModel<DealDocument>(Builders<DealDocument>.IndexKeys.Ascending(d => d.CompanyId).Ascending(d => d.BuyerIds),
+                    new CreateIndexOptions { Name = "company_buyers" }),
+                new CreateIndexModel<DealDocument>(Builders<DealDocument>.IndexKeys.Ascending(d => d.CompanyId).Ascending(d => d.SellerIds),
+                    new CreateIndexOptions { Name = "company_sellers" }),
+            ], ct);
+            await tenancies.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<TenancyDocument>(Builders<TenancyDocument>.IndexKeys.Ascending(t => t.CompanyId).Ascending(t => t.TenantIds),
+                    new CreateIndexOptions { Name = "company_tenants" }),
+                new CreateIndexModel<TenancyDocument>(Builders<TenancyDocument>.IndexKeys.Ascending(t => t.CompanyId).Ascending(t => t.LandlordIds),
+                    new CreateIndexOptions { Name = "company_landlords" }),
+            ], ct);
+            await shares.Indexes.CreateOneAsync(new CreateIndexModel<ShareDocument>(
+                Builders<ShareDocument>.IndexKeys.Ascending(x => x.CompanyId).Ascending(x => x.RequirementId),
+                new CreateIndexOptions { Name = "company_requirement" }), cancellationToken: ct);
+            var customers = database.GetCollection<CustomerDocument>("re_customers");
+            var ck = Builders<CustomerDocument>.IndexKeys;
+            await customers.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<CustomerDocument>(ck.Ascending(x => x.CompanyId).Ascending(x => x.Key),
+                    new CreateIndexOptions { Name = "company_key_unique", Unique = true }),
+                new CreateIndexModel<CustomerDocument>(ck.Ascending(x => x.CompanyId).Descending(x => x.LastActivityAt),
+                    new CreateIndexOptions { Name = "company_last_activity" }),
+                new CreateIndexModel<CustomerDocument>(ck.Ascending(x => x.CompanyId).Ascending(x => x.AgentIds).Descending(x => x.LastActivityAt),
+                    new CreateIndexOptions { Name = "company_agents_last_activity" }),
+                new CreateIndexModel<CustomerDocument>(ck.Ascending(x => x.CompanyId).Ascending(x => x.RequirementIds),
+                    new CreateIndexOptions { Name = "company_requirements" }),
+                new CreateIndexModel<CustomerDocument>(ck.Ascending(x => x.CompanyId).Ascending(x => x.LeadIds),
+                    new CreateIndexOptions { Name = "company_leads" }),
+            ], ct);
+
             var counters = database.GetCollection<CounterDocument>("re_counters");
             await counters.Indexes.CreateOneAsync(new CreateIndexModel<CounterDocument>(
                 Builders<CounterDocument>.IndexKeys.Ascending(c => c.CompanyId).Ascending(c => c.Name),

@@ -181,7 +181,8 @@ public sealed class UpdateEnquiryValidator : AbstractValidator<UpdateEnquiryComm
     }
 }
 
-public sealed class UpdateEnquiryHandler(IEnquiryRepository enquiries, IRequirementRepository requirements, IVisitRepository visits, EstateScope scope, TimeProvider clock)
+public sealed class UpdateEnquiryHandler(IEnquiryRepository enquiries, IRequirementRepository requirements, IVisitRepository visits, EstateScope scope, TimeProvider clock,
+    Customers.CustomerBook customers)
     : IRequestHandler<UpdateEnquiryCommand, EnquiryDto>
 {
     public async Task<EnquiryDto> Handle(UpdateEnquiryCommand request, CancellationToken ct)
@@ -250,6 +251,7 @@ public sealed class UpdateEnquiryHandler(IEnquiryRepository enquiries, IRequirem
 
         e.UpdatedAt = now;
         await enquiries.UpdateAsync(e, ct);
+        await customers.TouchAsync(e.ContactId, [e.LeadId], ct);
         return EnquiryMapping.ToDto(e);
     }
 }

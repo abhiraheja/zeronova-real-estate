@@ -42,7 +42,7 @@ public sealed class SaveTenancyValidator : AbstractValidator<SaveTenancyCommand>
 }
 
 public sealed class SaveTenancyHandler(ITenancyRepository tenancies, IPropertyRepository properties, IPartyRepository parties, IDealRepository deals,
-    MatchEngine engine, TenancyMapper mapper, EstateScope scope, Parties.PartyContacts contacts)
+    MatchEngine engine, TenancyMapper mapper, EstateScope scope, Parties.PartyContacts contacts, Customers.CustomerBook customers)
     : IRequestHandler<SaveTenancyCommand, TenancyDto>
 {
     public async Task<TenancyDto> Handle(SaveTenancyCommand request, CancellationToken ct)
@@ -116,6 +116,7 @@ public sealed class SaveTenancyHandler(ITenancyRepository tenancies, IPropertyRe
             await tenancies.UpdateAsync(row, ct);
         await contacts.SyncAsync(landlords, Parties.PartyContacts.Landlord, ct);
         await contacts.SyncAsync(tenants, Parties.PartyContacts.Tenant, ct);
+        await customers.TouchPartiesAsync(landlords.Concat(tenants), ct);
         return await mapper.OneAsync(row, ct);
     }
 }
@@ -132,7 +133,8 @@ public sealed class RecordRentPaymentValidator : AbstractValidator<RecordRentPay
     }
 }
 
-public sealed class RecordRentPaymentHandler(ITenancyRepository tenancies, TenancyMapper mapper, EstateScope scope, TimeProvider clock)
+public sealed class RecordRentPaymentHandler(ITenancyRepository tenancies, TenancyMapper mapper, EstateScope scope, TimeProvider clock,
+    Customers.CustomerBook customers)
     : IRequestHandler<RecordRentPaymentCommand, TenancyDto>
 {
     public async Task<TenancyDto> Handle(RecordRentPaymentCommand request, CancellationToken ct)
@@ -148,6 +150,7 @@ public sealed class RecordRentPaymentHandler(ITenancyRepository tenancies, Tenan
         });
         row.Payments = [.. row.Payments.OrderBy(p => p.Month).ThenBy(p => p.Date)];
         await tenancies.UpdateAsync(row, ct);
+        await customers.TouchPartiesAsync(row.TenantIds.Concat(row.LandlordIds), ct);
         return await mapper.OneAsync(row, ct);
     }
 }
@@ -155,7 +158,8 @@ public sealed class RecordRentPaymentHandler(ITenancyRepository tenancies, Tenan
 /// <summary>Renews a tenancy from the day after it ends: the new term, and the rent raised by its escalation unless a rent is given.</summary>
 public sealed record RenewTenancyCommand(string TenancyId, int Months, decimal? Rent) : IRequest<TenancyDto>;
 
-public sealed class RenewTenancyHandler(ITenancyRepository tenancies, TenancyMapper mapper, EstateScope scope) : IRequestHandler<RenewTenancyCommand, TenancyDto>
+public sealed class RenewTenancyHandler(ITenancyRepository tenancies, TenancyMapper mapper, EstateScope scope, Customers.CustomerBook customers)
+    : IRequestHandler<RenewTenancyCommand, TenancyDto>
 {
     public async Task<TenancyDto> Handle(RenewTenancyCommand request, CancellationToken ct)
     {
@@ -176,6 +180,7 @@ public sealed class RenewTenancyHandler(ITenancyRepository tenancies, TenancyMap
         row.Rent = rent;
         row.RenewalReminded = false;
         await tenancies.UpdateAsync(row, ct);
+        await customers.TouchPartiesAsync(row.TenantIds.Concat(row.LandlordIds), ct);
         return await mapper.OneAsync(row, ct);
     }
 }
@@ -184,7 +189,7 @@ public sealed class RenewTenancyHandler(ITenancyRepository tenancies, TenancyMap
 public sealed record EndTenancyCommand(string TenancyId, string? Date, string? Reason) : IRequest<TenancyDto>;
 
 public sealed class EndTenancyHandler(ITenancyRepository tenancies, IPropertyRepository properties, MatchEngine engine, TenancyMapper mapper, EstateScope scope,
-    TimeProvider clock)
+    TimeProvider clock, Customers.CustomerBook customers)
     : IRequestHandler<EndTenancyCommand, TenancyDto>
 {
     public async Task<TenancyDto> Handle(EndTenancyCommand request, CancellationToken ct)
@@ -199,6 +204,7 @@ public sealed class EndTenancyHandler(ITenancyRepository tenancies, IPropertyRep
         if (EstateText.Clean(request.Reason) is { } reason)
             row.Notes = (row.Notes is null ? string.Empty : row.Notes + "\n") + $"Ended {day}: {reason}";
         await tenancies.UpdateAsync(row, ct);
+        await customers.TouchPartiesAsync(row.TenantIds.Concat(row.LandlordIds), ct);
 
         if (await properties.GetDocument(row.PropertyId).FirstOrDefaultAsync(ct) is { Status: PropertyStatus.Rented } property)
         {

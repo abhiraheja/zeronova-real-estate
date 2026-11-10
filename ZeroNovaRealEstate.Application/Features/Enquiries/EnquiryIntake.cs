@@ -73,7 +73,8 @@ public sealed class LeadEnquiryReceivedNotification : ConsumerNotification
 /// </summary>
 public sealed class LeadEnquiryReceivedHandler(
     IEnquiryRepository enquiries, ICounterRepository counters, IPropertyRepository properties, IProjectRepository projects, IUnitTypeRepository unitTypes,
-    IRequirementRepository requirements, IWebsiteRepository websites, TimeProvider clock, ILogger<LeadEnquiryReceivedHandler> logger)
+    IRequirementRepository requirements, IWebsiteRepository websites, TimeProvider clock, ILogger<LeadEnquiryReceivedHandler> logger,
+    Customers.CustomerBook customers)
     : INotificationHandler<LeadEnquiryReceivedNotification>
 {
     public const string CodeCounter = "enquiry";
@@ -98,6 +99,17 @@ public sealed class LeadEnquiryReceivedHandler(
         if (!await IsRealEstateAsync(n, meta, company, ct))
             return;
 
+        // C2: the enquiry names the lead's contact — the lead's rows without one take it, and the customer's summary follows.
+        var lead = EstateText.Clean(n.LeadId);
+        var contact = EstateText.Clean(n.ContactId);
+        if (lead is not null && contact is not null)
+            await customers.BackfillAsync(lead, contact, ct, company);
+        await KeepAsync(n, meta, company, ct);
+        await customers.TouchAsync(contact, [lead], ct, company);
+    }
+
+    private async Task KeepAsync(LeadEnquiryReceivedNotification n, Dictionary<string, string> meta, string company, CancellationToken ct)
+    {
         var reference = EstateText.Clean(n.ExternalRef) ?? EstateText.Clean(n.ActivityId) ?? n.MessageId;
         if (await enquiries.GetDocuments(e => e.Ref == reference, true, company).AnyAsync(ct))
             return;   // already kept (a redelivery, or the same capture sent again)

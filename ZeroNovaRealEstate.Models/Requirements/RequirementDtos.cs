@@ -25,6 +25,10 @@ public enum FloorPreference
 public sealed class RequirementInput
 {
     public string LeadId { get; init; } = string.Empty;
+
+    /// <summary>The lead's contact (the lead picker's <c>contactId</c>): the customer's key (C2). Empty keeps the stored one for the same lead.</summary>
+    public string? ContactId { get; init; }
+
     public string? LeadName { get; init; }
     public string? LeadPhone { get; init; }
 
@@ -91,7 +95,8 @@ public sealed record RequirementDto(
     string? NeededBy,
     string? Notes,
     int NewMatches,
-    DateTimeOffset? CreatedAt);
+    DateTimeOffset? CreatedAt,
+    string? ContactId = null);
 
 public sealed record CloseRequirementInput(RequirementStatus Status, string? Reason);
 

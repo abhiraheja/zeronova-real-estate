@@ -38,6 +38,53 @@ the text below:
 - **Closing** keeps `wanted` for not available (C3 makes it a watched requirement) and a note; reopening clears them.
   Requirement added / visit booked need the link first; a closed enquiry only takes a link.
 
+**C2 built 2026-11-10 (backend; the app's Customers screen and dashboard are not):** `ZeroNova_estateCustomers(filter
+{text, agentId, hasOpenRequirement, highlighted, lastActivityFrom, lastActivityTo}, skip, take)` and
+`ZeroNova_estateCustomer(contactId, leadIds)` (both PRQV / PRQM), `contactId` on requirements, visits and parties (inputs
+and DTOs). The lead side of the dashboard (contact, current lead, lead history, activities) the app reads from
+zeronova-lead itself (`ZeroNova_contactById`, `ZeroNova_contactLeads`, `ZeroNova_contactActivities`, LEDV there); Real
+Estate never calls zeronova-lead for it and copies nothing of the CRM. How C2 works, and what differs from D32:
+
+- **The contact link.** Enquiries already carry `contactId`. Requirements take it from the input (the lead picker's
+  `contactId`), else the enquiry they are made from, else the one kept for the same lead, else the lead's contact as our
+  rows know it; visits from the input, their requirement or enquiry, else so; parties from the input, else so. Deals and
+  tenancies have no contact of their own: a deal is the customer's by its lead, its requirement or a seller / buyer party;
+  a tenancy by a landlord / tenant party. Every query also takes the contact's leads (`leadIds`, from
+  `ZeroNova_contactLeads`) and matches `leadId ∈ leadIds`; our own rows add the leads they know for the contact.
+- **Backfill.** Each Real Estate `lead-enquiry-received` with a lead and a contact sets the contact on that lead's
+  requirements, visits and parties that have none (one `updateMany` each; only rows without one change, so it is
+  idempotent and cheap).
+- **The list is a summary collection, `re_customers`** (chosen over aggregating six collections per request): one row per
+  customer key — the contact id, or `lead:{leadId}` while no row names the contact (merged into the contact's row when
+  an enquiry names it). The row holds the leads, requirement and party ids, name and phone (as the latest enquiry,
+  requirement or visit has them; a party's phone apart, shown only with POWV), the latest row's agent, every agent of any
+  row, the counts (enquiries, open requirements = active or on hold, visits, deals, tenancies, unmet) and the last
+  activity (a row's last change) **in all and per agent**, and a search text. `CustomerBook` rebuilds a customer's row
+  from their rows after every write of an enquiry (the consumer and updates), requirement (save, close, a completed
+  deal's close), visit (schedule, reschedule, result), deal (save, stage), tenancy (save, rent, renew, end) or party
+  (save) — a whole replace, so a missed or doubled refresh is put right by the next; a failure is logged and never fails
+  the write. The list is one indexed, paged query (latest activity first). A company's **first list builds every row
+  from its rows** once (counter `customers-built-v1`; bump the name to build again).
+- **Scoping (D15, D39).** PRQM: the customers the caller is the agent of any row of, with only their own share of the
+  numbers (an agent never sees another agent's counts); PRQV: every customer with all of it, and the `agentId` filter.
+  `deals` in the counts is null without PDLV / PDLM (all with PDLV, own with PDLM only).
+- **Highlighted** is not stored: at query time, the customer has a still-new match on an active requirement made in the
+  last 7 days (the caller's own matches unless PRQV). C3 adds revived matches on watched requirements to the same rule.
+- **The dashboard** is read live from the rows (not the summary): numbers (enquiries and open ones; requirements active /
+  closed; matches by status; shares sent / opened; visits done / upcoming; deals and deals by stage; tenancies;
+  properties owned; unmet) and the lists — enquiries (newest first), requirements (with all their matches counted and
+  the criteria in words), matches (new first, at most 200), shares (the requirement's links, property or project, opens,
+  last opened), visits (outcome, feedback; the owner's phone only with POWV as today), deals (stage, price, paid,
+  balance), tenancies, owned properties. Enquiries, requirements, matches, shares and visits follow PRQM / PRQV (an
+  unassigned enquiry only with PRQV); **deals** need PDLV / PDLM (own with PDLM only), **tenancies** PRNV / PRNM (own with
+  PRNM only), **owned properties** POWV — a list (and its number) the caller may not see is null, never filtered silently
+  to look empty. A customer another agent works shows an agent only what is theirs (no refusal: nothing of the other
+  agent's leaks).
+- **Unmet demand** (on the dashboard, `unmet` and its count in the list): requirements **lost**, or **closed with a reason
+  saying not available** ("not available", "nahi mila") — requirements have no close-reason list yet, so the free text is
+  read; one closed by a deal is met — with their criteria in words, and enquiries **closed as not available** with
+  `wanted`. C3 adds the watched status and revival.
+
 **Why:** the owner (2026-11-10): every listing is managed in the Real Estate app; each property and project shows how
 many enquiries it got; an Enquiries screen shows them day, week and month wise; a **customer** has a dashboard like a
 Tutor student (every enquiry, how far the lead went, what they asked for and did not get); when a customer's request

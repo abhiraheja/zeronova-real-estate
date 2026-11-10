@@ -33,7 +33,7 @@ public sealed class SaveDealValidator : AbstractValidator<SaveDealCommand>
 }
 
 public sealed class SaveDealHandler(IDealRepository deals, IPropertyRepository properties, IPartyRepository parties, ICounterRepository counters, DealMapper mapper,
-    EstateScope scope, Parties.PartyContacts contacts)
+    EstateScope scope, Parties.PartyContacts contacts, Customers.CustomerBook customers)
     : IRequestHandler<SaveDealCommand, DealDto>
 {
     public const string CodeCounter = "deal";
@@ -101,6 +101,7 @@ public sealed class SaveDealHandler(IDealRepository deals, IPropertyRepository p
         var rent = deal.Kind == PropertyPurpose.Rent;
         await contacts.SyncAsync(sellers, rent ? Parties.PartyContacts.Landlord : Parties.PartyContacts.Seller, ct);
         await contacts.SyncAsync(buyers, rent ? Parties.PartyContacts.Tenant : Parties.PartyContacts.Buyer, ct);
+        await customers.TouchDealAsync(deal, ct);
         return await mapper.OneAsync(deal, ct);
     }
 }
@@ -112,7 +113,7 @@ public sealed class SaveDealHandler(IDealRepository deals, IPropertyRepository p
 public sealed record SetDealStageCommand(string DealId, DealStageInput Input) : IRequest<DealDto>;
 
 public sealed class SetDealStageHandler(IDealRepository deals, IPropertyRepository properties, IPartyRepository parties, IRequirementRepository requirements,
-    MatchEngine engine, DealMapper mapper, EstateScope scope, TimeProvider clock, Parties.PartyContacts contacts)
+    MatchEngine engine, DealMapper mapper, EstateScope scope, TimeProvider clock, Parties.PartyContacts contacts, Customers.CustomerBook customers)
     : IRequestHandler<SetDealStageCommand, DealDto>
 {
     public async Task<DealDto> Handle(SetDealStageCommand request, CancellationToken ct)
@@ -177,6 +178,7 @@ public sealed class SetDealStageHandler(IDealRepository deals, IPropertyReposito
 
         deal.Stage = stage;
         await deals.UpdateAsync(deal, ct);
+        await customers.TouchDealAsync(deal, ct);
         return await mapper.OneAsync(deal, ct);
     }
 }
