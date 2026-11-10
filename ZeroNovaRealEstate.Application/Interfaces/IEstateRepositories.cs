@@ -72,6 +72,15 @@ public interface ITenancyRepository : ICompanyRepositoryBase<TenancyDocument>
 
 public interface IEstateSettingsRepository : ICompanyRepositoryBase<EstateSettingsDocument>;
 
+public interface IWebsiteRepository : ICompanyRepositoryBase<EstateWebsiteDocument>
+{
+    /// <summary>
+    /// The website with this code, across companies — the public listings' one deliberate cross-tenant read (cms doc 06
+    /// §12). The code is the only key; never use it for anything else.
+    /// </summary>
+    Task<EstateWebsiteDocument?> FindByCodeAnyTenantAsync(string code, CancellationToken ct = default);
+}
+
 public interface ICustomFieldRepository : ICompanyRepositoryBase<CustomFieldDocument>;
 
 public interface ILocalityRepository : ICompanyRepositoryBase<LocalityDocument>

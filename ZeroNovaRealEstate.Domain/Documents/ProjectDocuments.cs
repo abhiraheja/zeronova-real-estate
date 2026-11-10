@@ -160,6 +160,14 @@ public sealed class ProjectDocument : CompanyDocumentBase
 
     /// <summary>Name, code, locality, city, builder — lower-cased.</summary>
     [BsonElement("searchText")] public string SearchText { get; set; } = string.Empty;
+
+    // ── The company's website (cms doc 06 §12, E2).
+
+    [BsonElement("showOnWebsite")] public bool ShowOnWebsite { get; set; }
+    [BsonElement("featured")] public bool Featured { get; set; }
+
+    /// <summary>The website address part, made once from the name (the code added when the name is taken); kept on a rename.</summary>
+    [BsonElement("slug")] [BsonIgnoreIfNull] public string? Slug { get; set; }
 }
 
 /// <summary>A kind of unit in a project (design 7.2): its units take these fields and keep them in step (D18).</summary>

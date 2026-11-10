@@ -199,4 +199,17 @@ public sealed class PropertyDocument : CompanyDocumentBase
     [BsonElement("holdLeadId")] public string? HoldLeadId { get; set; }
 
     [BsonElement("holdLeadName")] public string? HoldLeadName { get; set; }
+
+    // ── The company's website (cms doc 06 §12, E2). A project unit is never listed on its own (only through its project).
+
+    /// <summary>Listed on the company's website while available or on hold (and the website is on).</summary>
+    [BsonElement("showOnWebsite")] public bool ShowOnWebsite { get; set; }
+
+    [BsonElement("featured")] public bool Featured { get; set; }
+
+    /// <summary>The website address part, made once from the title and the code; kept when the title changes. Unique per company.</summary>
+    [BsonElement("slug")] [BsonIgnoreIfNull] public string? Slug { get; set; }
+
+    /// <summary>Words the website's search may look in: title, locality, society, city, code — never notes, block or unit number.</summary>
+    [BsonElement("websiteText")] public string WebsiteText { get; set; } = string.Empty;
 }

@@ -224,6 +224,12 @@ public sealed class ProjectInput
     public decimal? GstPercent { get; init; }
 
     public string? Notes { get; init; }
+
+    // ── The company's website (cms doc 06 §12). Null keeps what is saved. An own project is listed only with its RERA
+    // registration, or marked as not needing one (RERA s.3), as for sharing.
+
+    public bool? ShowOnWebsite { get; init; }
+    public bool? Featured { get; init; }
 }
 
 public sealed class ProjectSearchInput
@@ -487,7 +493,10 @@ public sealed record ProjectDto(
     IReadOnlyList<PaymentPlanDto> PaymentPlans,
     bool Stale,
     DateTimeOffset LastConfirmedAt,
-    DateTimeOffset? CreatedAt);
+    DateTimeOffset? CreatedAt,
+    bool ShowOnWebsite = false,
+    bool Featured = false,
+    string? WebsiteSlug = null);
 
 /// <summary>A project in a list (and on the dashboard): what it is and its units by status.</summary>
 public sealed record ProjectSummaryDto(
@@ -504,7 +513,9 @@ public sealed record ProjectSummaryDto(
     string? BuilderName,
     UnitCountsDto Units,
     decimal? FromPrice,
-    bool Stale);
+    bool Stale,
+    bool ShowOnWebsite = false,
+    bool Featured = false);
 
 /// <summary>A unit on the board (D20): its number, tower, floor, type, status (and the lead it is blocked for), price.</summary>
 public sealed record UnitDto(

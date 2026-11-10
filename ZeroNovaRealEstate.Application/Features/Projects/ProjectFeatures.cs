@@ -165,6 +165,16 @@ public sealed class SaveProjectHandler(
         p.Notes = input.Notes?.Trim() is { Length: > 0 } notes ? notes : null;
         p.SearchText = string.Join(' ', new[] { p.Name, p.Code, p.Locality, p.City, p.BuilderName }.Where(x => !string.IsNullOrWhiteSpace(x))).ToLowerInvariant();
 
+        // The website (cms doc 06 §12): an own project is advertised only once RERA-registered, as for sharing (RERA s.3).
+        if (input.ShowOnWebsite is { } show)
+            p.ShowOnWebsite = show;
+        if (input.Featured is { } featured)
+            p.Featured = featured;
+        if (p.ShowOnWebsite && !Website.WebsiteListings.MayList(p))
+            throw new ValidatorException($"{p.Name} has no RERA registration yet: a project may not be advertised on the website before it is registered (RERA s.3). "
+                + "Add the registration, mark the project as not needing one with the reason, or take it off the website.");
+        p.Slug ??= await Website.WebsiteSlugs.ForProjectAsync(projects, p, ct);
+
         if (isNew)
             await projects.AddAsync(p, ct);
         else

@@ -212,6 +212,8 @@ public sealed class SavePropertyHandler(
             throw new ValidatorException($"{property.Code} is a project unit: change it from its project (its type, its unit details).");
 
         await PropertyWriter.ApplyAsync(property, request.Input, s, fields, ct);
+        // The website address is made once and kept when the title changes (cms doc 06 §12).
+        property.Slug ??= await Website.WebsiteSlugs.ForPropertyAsync(properties, property, ct);
         if (isNew)
             await properties.AddAsync(property, ct);
         else

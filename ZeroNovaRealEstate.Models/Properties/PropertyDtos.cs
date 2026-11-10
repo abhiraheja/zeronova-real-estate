@@ -266,6 +266,13 @@ public sealed class PropertyInput
 
     /// <summary>The dealer's own fields (D4): key → value as text.</summary>
     public IReadOnlyList<CustomValueInput>? Custom { get; init; }
+
+    // ── The company's website (cms doc 06 §12). Null keeps what is saved.
+
+    /// <summary>Listed on the website while available or on hold (and the website is on).</summary>
+    public bool? ShowOnWebsite { get; init; }
+
+    public bool? Featured { get; init; }
 }
 
 public sealed record CustomValueInput(string Key, string Value);
@@ -292,6 +299,7 @@ public sealed record PropertyOwnerInput(string PartyId, decimal? SharePercent, H
 /// A property as members see it. Owner details (<see cref="UnitNumber"/>, <see cref="OwnerExpectation"/>, owners'
 /// phones, the source dealer's phone) are null without POWV — except a project unit's number, which is no owner's
 /// secret (D25). A project unit carries its project, type and tower (D18); it is never stale on its own (D21).
+/// <see cref="WebsiteSlug"/> is its address on the company's website (made once, kept when the title changes).
 /// </summary>
 public sealed record PropertyDto(
     string Id,
@@ -389,7 +397,10 @@ public sealed record PropertyDto(
     string? Tower = null,
     bool OwnPrice = false,
     string? HoldLeadId = null,
-    string? HoldLeadName = null);
+    string? HoldLeadName = null,
+    bool ShowOnWebsite = false,
+    bool Featured = false,
+    string? WebsiteSlug = null);
 
 public enum PropertySort
 {

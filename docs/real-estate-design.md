@@ -274,3 +274,34 @@ counts by status are computed.
 | P2 | Primary sale: block → booking (booking amount, applicants, plan chosen) → allotment letter → builder-buyer agreement (Word, like D12) → demands raised from the plan as milestones are reached, receipts, interest on late payment → possession → conveyance / registry; the customer's statement |
 | P3 | Channel partners: CP registration (firm, RERA agent number, PAN, GST, KYC), lead registration with validity and first-tag ownership, a CP's own view of inventory and their leads, commission slabs and payout runs with TDS (the M4 engine) |
 | Later | Projects on the website (the cms real-estate template), RERA QR on shares where a state requires it, AI answers from the brochure |
+
+### 7.5 Website listings (E2, cms doc 06 §12)
+
+**Status:** built in this service (2026-11-10; not yet deployed). The app's Website card and toggles are E3.
+- **Settings (`PSEM`):** `re_websites`, one per company: on/off and a code of letters and digits, unique across companies,
+  made on first ask like Tutor's coaching code (six characters without look-alikes; PSEM may choose another, 4–20,
+  kept in upper case). `ZeroNova_estateWebsiteSettings` (PSEM, PPRV, PPRM or PPJM; with the counts listed) and
+  `ZeroNova_saveEstateWebsiteSettings` (PSEM; null keeps). The admin copies the code into the cms `estateWebsiteCode`.
+- **Flags:** `showOnWebsite` and `featured` on `PropertyInput` and `ProjectInput` (null keeps; off by default), and on
+  `PropertyDto`, `ProjectDto`, `ProjectSummaryDto` with `websiteSlug`. A project unit is never listed on its own (units
+  have no flag; `saveEstateProperty` still refuses them). An own project goes on the website only with its RERA
+  registration or marked as needing none — the share rule (RERA s.3).
+- **Slugs:** made on the first save and kept when the title or name changes; unique per company (partial unique index).
+  A property: the title without its locality, sale or rent, the locality, the city, the code
+  (`3-bhk-flat-for-sale-sector-70-mohali-p0001`). A project: its name; with the code when another project has the name
+  (`aetro-sapphire-pj0002`). Properties saved before E2 get theirs at their next save (they cannot be flagged without one).
+- **Public queries** (anonymous, by code, through the graph gateway like Tutor's shop; a wrong code and a website turned
+  off both answer "This website is not available"): `ZeroNova_estateWebsite`, `ZeroNova_estateWebsiteProperties(code,
+  filter, sort, page, pageSize)`, `ZeroNova_estateWebsiteProperty(code, slug)`, `ZeroNova_estateWebsiteProjects(code)`,
+  `ZeroNova_estateWebsiteProject(code, slug)`. Listed: the flag on, the website on, available or on hold. The design's
+  "status" filter is the construction status (ready / under construction); `locality` takes a name or a slug; the text
+  search looks only in the title, locality, society, city and code (never notes, block or unit number).
+- **A property page** is `Listed`, or `NoLongerAvailable` (sold, rented, withdrawn, taken off the website, removed — the
+  title kept only when it had been on the website) with up to four similar listings, or `NotFound`. A project no longer
+  listed is null.
+- **Unit-type availability:** sold out with none available; **few left** with at most max(3, 10% of the type's units)
+  available; available otherwise, also for a type with no units yet. Withdrawn units do not count. The "from" price is
+  the lowest price of an available unit (its cost sheet, D22), null when the type's price is on request.
+- **Never shown:** owners and their contacts, unit numbers, block, a property's map pin, the owner's expectation, the
+  source dealer, keys, mandate, papers, notes, the dealer's own fields, holds, CP terms, the builder's contact, plan
+  notes. A project's address and map pin are shown, as on its share page.

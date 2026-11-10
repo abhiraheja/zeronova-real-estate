@@ -40,6 +40,9 @@ public sealed class SchemaTests
             "ZeroNova_saveEstateUnitType(", "ZeroNova_deleteEstateUnitType(", "ZeroNova_generateEstateUnits(", "ZeroNova_saveEstateUnit(", "ZeroNova_setEstateUnitStatus(",
             "ZeroNova_saveEstatePriceList(", "ZeroNova_saveEstatePaymentPlan(", "ZeroNova_deleteEstatePaymentPlan(", "ZeroNova_saveEstateMilestones(",
             "ZeroNova_addEstateConstructionUpdate(", "ZeroNova_deleteEstateConstructionUpdate(", "ZeroNova_shareEstateProject(",
+            "ZeroNova_estateWebsiteSettings", "ZeroNova_saveEstateWebsiteSettings(", "ZeroNova_estateWebsite(", "ZeroNova_estateWebsiteProperties(",
+            "ZeroNova_estateWebsiteProperty(", "ZeroNova_estateWebsiteProjects(", "ZeroNova_estateWebsiteProject(",
+            "showOnWebsite: Boolean", "websiteSlug: String", "FEW_LEFT", "NO_LONGER_AVAILABLE", "EstateWebsitePropertyFilterInput",
             "PER_FLOOR_ABOVE", "ON_AGREEMENT", "FARMHOUSE", "availableInGroup: Int",
             "BUILDER_FLOOR", "NORTH_EAST", "SQ_YD", "MARLA", "price: Decimal", "sizeSqFt: Decimal",
         })

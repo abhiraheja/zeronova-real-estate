@@ -379,7 +379,7 @@ public sealed class ProjectMapper(
             list is null ? null : PriceList(list, names),
             [.. planRows.Select(x => Plan(x, p.Milestones))],
             EstateSettings.IsStale(p, s, clock.GetUtcNow().UtcDateTime),
-            new DateTimeOffset(DateTime.SpecifyKind(p.LastConfirmedAt, DateTimeKind.Utc)), p.CreatedBy?.ChangedDate);
+            new DateTimeOffset(DateTime.SpecifyKind(p.LastConfirmedAt, DateTimeKind.Utc)), p.CreatedBy?.ChangedDate, p.ShowOnWebsite, p.Featured, p.Slug);
     }
 
     public async Task<IReadOnlyList<ProjectSummaryDto>> SummariesAsync(IReadOnlyList<ProjectDocument> rows, CancellationToken ct)
@@ -390,7 +390,8 @@ public sealed class ProjectMapper(
         var now = clock.GetUtcNow().UtcDateTime;
         var units = (await UnitRowsAsync([.. rows.Select(p => p.Id)], ct)).ToLookup(u => u.ProjectId);
         return [.. rows.Select(p => new ProjectSummaryDto(p.Id, p.Code, p.Name, p.Kind, p.Stage, p.Categories, p.City, p.Locality, p.Photos.FirstOrDefault()?.Url,
-            p.PossessionDate, p.BuilderName, ProjectUnits.Count(units[p.Id].Select(u => u.Status)), FromPrice(units[p.Id]), EstateSettings.IsStale(p, s, now)))];
+            p.PossessionDate, p.BuilderName, ProjectUnits.Count(units[p.Id].Select(u => u.Status)), FromPrice(units[p.Id]), EstateSettings.IsStale(p, s, now),
+            p.ShowOnWebsite, p.Featured))];
     }
 
     public async Task<UnitTypeDto> UnitTypeAsync(UnitTypeDocument type, CancellationToken ct)

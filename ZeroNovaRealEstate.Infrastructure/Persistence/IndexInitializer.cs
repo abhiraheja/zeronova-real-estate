@@ -46,10 +46,45 @@ public sealed class IndexInitializer(IMongoDatabase database, ILogger<IndexIniti
                         & Builders<PropertyDocument>.Filter.Type(p => p.ProjectId, BsonType.String),
                 }), cancellationToken: ct);
 
+            // The website (E2): a slug is one listing's address within its company; the listing reads by flag and status.
+            await properties.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<PropertyDocument>(Builders<PropertyDocument>.IndexKeys.Ascending(p => p.CompanyId).Ascending(p => p.Slug),
+                    new CreateIndexOptions<PropertyDocument>
+                    {
+                        Name = "company_slug_unique",
+                        Unique = true,
+                        PartialFilterExpression = Builders<PropertyDocument>.Filter.Eq(p => p.IsDeleted, false)
+                            & Builders<PropertyDocument>.Filter.Type(p => p.Slug, BsonType.String),
+                    }),
+                new CreateIndexModel<PropertyDocument>(Builders<PropertyDocument>.IndexKeys
+                    .Ascending(p => p.CompanyId).Ascending(p => p.ShowOnWebsite).Ascending(p => p.Status).Ascending(p => p.Purpose),
+                    new CreateIndexOptions { Name = "company_website_status_purpose" }),
+            ], ct);
+
             var projects = database.GetCollection<ProjectDocument>("re_projects");
             await projects.Indexes.CreateOneAsync(new CreateIndexModel<ProjectDocument>(
                 Builders<ProjectDocument>.IndexKeys.Ascending(p => p.CompanyId).Ascending(p => p.Code),
                 new CreateIndexOptions { Name = "company_code_unique", Unique = true }), cancellationToken: ct);
+            await projects.Indexes.CreateOneAsync(new CreateIndexModel<ProjectDocument>(
+                Builders<ProjectDocument>.IndexKeys.Ascending(p => p.CompanyId).Ascending(p => p.Slug),
+                new CreateIndexOptions<ProjectDocument>
+                {
+                    Name = "company_slug_unique",
+                    Unique = true,
+                    PartialFilterExpression = Builders<ProjectDocument>.Filter.Eq(p => p.IsDeleted, false)
+                        & Builders<ProjectDocument>.Filter.Type(p => p.Slug, BsonType.String),
+                }), cancellationToken: ct);
+
+            // A website code is unique across companies: it is how the public listings find the company (like Tutor's coaching code).
+            var websites = database.GetCollection<EstateWebsiteDocument>("re_websites");
+            await websites.Indexes.CreateManyAsync(
+            [
+                new CreateIndexModel<EstateWebsiteDocument>(Builders<EstateWebsiteDocument>.IndexKeys.Ascending(w => w.Code),
+                    new CreateIndexOptions { Name = "code_unique", Unique = true }),
+                new CreateIndexModel<EstateWebsiteDocument>(Builders<EstateWebsiteDocument>.IndexKeys.Ascending(w => w.CompanyId),
+                    new CreateIndexOptions { Name = "company_unique", Unique = true }),
+            ], ct);
             var unitTypes = database.GetCollection<UnitTypeDocument>("re_unit_types");
             await unitTypes.Indexes.CreateOneAsync(new CreateIndexModel<UnitTypeDocument>(
                 Builders<UnitTypeDocument>.IndexKeys.Ascending(t => t.CompanyId).Ascending(t => t.ProjectId),

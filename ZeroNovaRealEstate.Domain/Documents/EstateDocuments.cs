@@ -135,6 +135,19 @@ public sealed class EstateSettingsDocument : CompanyDocumentBase
     [BsonElement("rentBrokerageMonths")] public decimal RentBrokerageMonths { get; set; } = 1m;
 }
 
+/// <summary>
+/// The company's public website (cms doc 06 §12, E2): on or off, and its code — unique across companies, as Tutor's
+/// coaching code is. The site's server asks for the listings by this code, with no login. One per company, made on first ask.
+/// </summary>
+[DocumentName("re_websites")]
+public sealed class EstateWebsiteDocument : CompanyDocumentBase
+{
+    /// <summary>Letters and digits, upper case.</summary>
+    [BsonElement("code")] public required string Code { get; set; }
+
+    [BsonElement("enabled")] public bool Enabled { get; set; }
+}
+
 /// <summary>A field the dealer added (D4).</summary>
 [DocumentName("re_custom_fields")]
 public sealed class CustomFieldDocument : CompanyDocumentBase

@@ -139,6 +139,14 @@ public sealed class TenancyRepository(IMongoDatabase database, IRequestContext c
 public sealed class EstateSettingsRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<EstateSettingsDocument>(database, context), IEstateSettingsRepository;
 
+public sealed class WebsiteRepository(IMongoDatabase database, IRequestContext context)
+    : CompanyRepositoryBase<EstateWebsiteDocument>(database, context), IWebsiteRepository
+{
+    // Deliberately across companies — see the interface.
+    public async Task<EstateWebsiteDocument?> FindByCodeAnyTenantAsync(string code, CancellationToken ct = default) =>
+        await Collection.Find(w => w.Code == code && !w.IsDeleted).FirstOrDefaultAsync(ct);
+}
+
 public sealed class CustomFieldRepository(IMongoDatabase database, IRequestContext context)
     : CompanyRepositoryBase<CustomFieldDocument>(database, context), ICustomFieldRepository;
 
