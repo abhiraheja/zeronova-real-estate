@@ -40,11 +40,11 @@ public sealed class ProjectTests(MongoFixture mongo) : IAsyncLifetime
 
     public async Task DisposeAsync() => await host.DisposeAsync();
 
-    private static ProjectInput Own(string name = "Aetro Heights", string locality = "Sector 82") => new()
+    private static ProjectInput Own(string name = "Aetro Heights", string locality = "Sector 82", TowerInput[]? towers = null, decimal gst = 5m) => new()
     {
         Name = name, Kind = ProjectKind.Own, Locality = locality, Categories = [ProjectCategory.Residential, ProjectCategory.GroupHousing],
-        Stage = ProjectStage.UnderConstruction, PossessionDate = "2028-12-31", Amenities = ["Club", "Pool"], GstPercent = 5m,
-        Towers = [new TowerInput("A", 12), new TowerInput("B", 12)], Reras = [new ReraInput("PBRERA-SAS80-PR0999", "Punjab", "2025-01-10", "2029-12-31", null)],
+        Stage = ProjectStage.UnderConstruction, PossessionDate = "2028-12-31", Amenities = ["Club", "Pool"], GstPercent = gst,
+        Towers = towers ?? [new TowerInput("A", 12), new TowerInput("B", 12)], Reras = [new ReraInput("PBRERA-SAS80-PR0999", "Punjab", "2025-01-10", "2029-12-31", null)],
         Photos = [new PhotoInput("real-estate/p/1.jpg", "https://cdn.test/1.jpg")], Brochure = new MediaFileInput("real-estate/p/b.pdf", "https://cdn.test/b.pdf", "Brochure"),
     };
 
@@ -467,6 +467,23 @@ public sealed class ProjectTests(MongoFixture mongo) : IAsyncLifetime
         Assert.NotNull(await host.SendAs(CompanyA, new CreateProjectShareCommand(project.Id, null)));
         var registered = await host.SendAs(CompanyA, new SaveProjectCommand(null, Own()));
         Assert.NotNull(await host.SendAs(CompanyA, new CreateProjectShareCommand(registered.Id, null)));
+    }
+
+    [Fact]
+    public async Task A_project_without_a_tower_list_saves_again_and_a_list_must_keep_the_towers_its_units_use()
+    {
+        // No tower list: units take any tower name, and the project still saves (it once refused every save here).
+        var (project, type) = await ProjectWithType(Own(towers: []));
+        await Generate(project.Id, type.Id, 1, 1);
+        var saved = await host.SendAs(CompanyA, new SaveProjectCommand(project.Id, Own(towers: [], gst: 12m)));
+        Assert.Equal((12m, 0), (saved.GstPercent, saved.Towers.Count));
+
+        // A list must name the towers its units use; once it does, removing one of them is refused.
+        var wrong = await Assert.ThrowsAsync<ValidatorException>(() =>
+            host.SendAs(CompanyA, new SaveProjectCommand(project.Id, Own(towers: [new TowerInput("B", 10)]))));
+        Assert.Contains("Tower A has units", wrong.Message);
+        await host.SendAs(CompanyA, new SaveProjectCommand(project.Id, Own(towers: [new TowerInput("A", 10)])));
+        await Assert.ThrowsAsync<ValidatorException>(() => host.SendAs(CompanyA, new SaveProjectCommand(project.Id, Own(towers: []))));
     }
 
     [Fact]

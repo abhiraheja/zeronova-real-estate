@@ -141,7 +141,9 @@ public sealed class SaveProjectHandler(
             .ToList();
         if (towers.GroupBy(t => t.Name, StringComparer.OrdinalIgnoreCase).FirstOrDefault(g => g.Count() > 1) is { } twice)
             throw new ValidatorException($"Tower {twice.Key} is listed twice.");
-        if (!isNew)
+        // A project with no tower list takes any tower name on its units (UnitRules.Tower), so an empty list kept empty
+        // removes nothing: only a save that has, or had, a list must keep every tower its units use.
+        if (!isNew && (towers.Count > 0 || p.Towers.Count > 0))
         {
             var used = await properties.GetDocuments(u => u.ProjectId == p.Id && u.Tower != null).Select(u => u.Tower!).Distinct().ToListAsync(ct);
             if (used.FirstOrDefault(name => towers.All(t => !string.Equals(t.Name, name, StringComparison.OrdinalIgnoreCase))) is { } gone)
