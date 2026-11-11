@@ -142,6 +142,33 @@ public sealed class DealTests(MongoFixture mongo) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task Only_one_deal_holds_the_token_and_a_sold_property_takes_no_new_deal()
+    {
+        var first = await host.SendAs(CompanyA, new SaveDealCommand(null, Deal()));
+        var second = await host.SendAs(CompanyA, new SaveDealCommand(null, Deal()));   // two offers side by side
+
+        await host.SendAs(CompanyA, new SetDealStageCommand(first.Id, new DealStageInput(DealStage.Token, null)));
+        Assert.Equal(PropertyStatus.TokenReceived, (await host.SendAs(CompanyA, new GetPropertyQuery(flat.Id))).Status);
+        var held = await Assert.ThrowsAsync<ValidatorException>(() =>
+            host.SendAs(CompanyA, new SetDealStageCommand(second.Id, new DealStageInput(DealStage.Token, null))));
+        Assert.Contains($"{first.Code} already has the token", held.Message);
+
+        // The token's deal falls through: the property is free again, and the other offer can take it.
+        await host.SendAs(CompanyA, new SetDealStageCommand(first.Id, new DealStageInput(DealStage.Cancelled, "buyer's loan refused")));
+        Assert.Equal(PropertyStatus.Available, (await host.SendAs(CompanyA, new GetPropertyQuery(flat.Id))).Status);
+        await host.SendAs(CompanyA, new SetDealStageCommand(second.Id, new DealStageInput(DealStage.Token, null)));
+
+        var third = await host.SendAs(CompanyA, new SaveDealCommand(null, Deal()));
+        await host.SendAs(CompanyA, new SetDealStageCommand(second.Id, new DealStageInput(DealStage.Completed, null)));
+        var others = await host.SendAs(CompanyA, new GetDealsQuery(null, flat.Id));
+        var closed = Assert.Single(others, d => d.Id == third.Id);
+        Assert.Equal(DealStage.Cancelled, closed.Stage);
+
+        var sold = await Assert.ThrowsAsync<ValidatorException>(() => host.SendAs(CompanyA, new SaveDealCommand(null, Deal())));
+        Assert.Contains("is sold", sold.Message);
+    }
+
+    [Fact]
     public async Task A_ready_agreement_reads_right_and_comes_out_as_editable_word()
     {
         var deal = await host.SendAs(CompanyA, new SaveDealCommand(null, Deal()));

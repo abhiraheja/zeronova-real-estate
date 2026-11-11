@@ -48,6 +48,8 @@ public sealed class SaveDealHandler(IDealRepository deals, IPropertyRepository p
             : await DealLookup.RequireAsync(deals, scope, request.DealId!, ct);
         if (deal.Stage is DealStage.Completed or DealStage.Cancelled)
             throw new ValidatorException($"{deal.Code} is {deal.Stage.ToString().ToLowerInvariant()}; it cannot change.");
+        if (isNew)
+            DealLock.EnsureOpen(property);
 
         var sellers = (input.SellerIds is { Count: > 0 } s ? s : property.Owners.Select(o => o.PartyId)).Distinct().ToList();
         var buyers = input.BuyerIds.Distinct().ToList();
@@ -125,6 +127,36 @@ public sealed class SetDealStageHandler(IDealRepository deals, IPropertyReposito
         if (stage == DealStage.Cancelled)
             deal.CancelReason = EstateText.Clean(request.Input.Reason) ?? throw new ValidatorException("Say why the deal fell through.");
 
+        // The double-sale lock: offers may run side by side, but only one deal holds the token and goes on from there.
+        var held = DealLock.Holds(deal.Stage);
+        if (DealLock.Holds(stage) || stage == DealStage.Completed)
+        {
+            var property = await properties.GetDocument(deal.PropertyId).FirstOrDefaultAsync(ct) ?? throw new ValidatorException("Property not found.");
+            if (!held)
+                DealLock.EnsureOpen(property);
+            var holder = await deals.GetDocuments(d => d.PropertyId == deal.PropertyId && d.Id != deal.Id
+                && (d.Stage == DealStage.Token || d.Stage == DealStage.Agreement || d.Stage == DealStage.Transfer || d.Stage == DealStage.Registry))
+                .FirstOrDefaultAsync(ct);
+            if (holder is not null)
+                throw new ValidatorException($"{holder.Code} already has the token for {property.Code}. Cancel it first, or work that deal.");
+            if (DealLock.Holds(stage) && !held && property.Status is not PropertyStatus.TokenReceived)
+            {
+                property.Status = PropertyStatus.TokenReceived;
+                property.HoldUntil = null;
+                await properties.UpdateAsync(property, ct);
+                await engine.DropForPropertyAsync(property.Id, ct);
+            }
+        }
+        else if (stage == DealStage.Cancelled && held
+            && await properties.GetDocument(deal.PropertyId).FirstOrDefaultAsync(ct) is { Status: PropertyStatus.TokenReceived } released)
+        {
+            // The token is gone with the deal: the property is free again and is offered to matching customers.
+            released.Status = PropertyStatus.Available;
+            released.HoldUntil = null;
+            await properties.UpdateAsync(released, ct);
+            await engine.ForPropertyAsync(released, ct);
+        }
+
         if (stage == DealStage.Completed)
         {
             if (deal.BuyerIds.Count == 0)
@@ -166,6 +198,17 @@ public sealed class SetDealStageHandler(IDealRepository deals, IPropertyReposito
                 await engine.ForRequirementAsync(requirement, ct);
             }
             deal.CompletedAt = clock.GetUtcNow().UtcDateTime;
+
+            // The other offers on it fell through with this sale or let.
+            var others = await deals.GetDocuments(d => d.PropertyId == deal.PropertyId && d.Id != deal.Id
+                && d.Stage != DealStage.Completed && d.Stage != DealStage.Cancelled).ToListAsync(ct);
+            foreach (var other in others)
+            {
+                other.Stage = DealStage.Cancelled;
+                other.CancelReason = $"{property.Code} went to {deal.Code}";
+                await deals.UpdateAsync(other, ct);
+                await customers.TouchDealAsync(other, ct);
+            }
 
             // The buyer's enquiry became a deal: owners of what they bought, and won in zeronova-lead.
             if (deal.Kind == PropertyPurpose.Sale)
@@ -336,5 +379,30 @@ internal static class DealLookup
         if (!scope.SeesAllDeals && deal.AgentId != scope.UserId)
             throw new ValidatorException("This deal is another agent's.");
         return deal;
+    }
+}
+
+/// <summary>
+/// The double-sale lock (C5's open item, the QA report of 2026-11-11): several deals may sit at Offer on one property,
+/// but only one at Token or later; a deal never starts or moves on a property already sold, rented or withdrawn.
+/// </summary>
+internal static class DealLock
+{
+    /// <summary>The stages that hold the property for one buyer: the token is paid and the deal goes on.</summary>
+    public static readonly DealStage[] HoldingStages = [DealStage.Token, DealStage.Agreement, DealStage.Transfer, DealStage.Registry];
+
+    public static bool Holds(DealStage stage) => HoldingStages.Contains(stage);
+
+    public static void EnsureOpen(PropertyDocument property)
+    {
+        var state = property.Status switch
+        {
+            PropertyStatus.Sold => "sold",
+            PropertyStatus.Rented => "rented",
+            PropertyStatus.Withdrawn => "withdrawn",
+            _ => null,
+        };
+        if (state is not null)
+            throw new ValidatorException($"{property.Code} is {state}. Mark it available again before starting or moving a deal on it.");
     }
 }

@@ -300,7 +300,7 @@ public sealed class GetEstateWebsitePropertiesHandler(IWebsiteRepository website
         if (page.TotalCount == 0 && page.Page == 1)
         {
             var f = request.Filter;
-            await demand.RecordEmptySearchAsync(site.CompanyId, f.Purpose, f.Types, f.City, f.Locality, f.PriceFrom, f.PriceTo, f.Bhk, ct);
+            await demand.RecordEmptySearchAsync(site.CompanyId, f.Purpose, f.Types, f.City, f.Locality, f.PriceFrom, f.PriceTo, f.Bhk, ct, f.Text);
         }
         return page;
     }

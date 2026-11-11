@@ -450,6 +450,25 @@ public sealed class WatchedDemandTests(MongoFixture mongo) : IAsyncLifetime
     }
 
     [Fact]
+    public async Task A_typed_website_search_counts_what_its_words_say_and_a_purpose_alone_is_not_counted()
+    {
+        await host.WithAsync(CompanyA, sp => sp.GetRequiredService<ILocalityRepository>().EnsureAsync("Sector 82", "sector 82", "Mohali"));
+        var code = (await host.SendAs(CompanyA, new SaveEstateWebsiteSettingsCommand(new EstateWebsiteSettingsInput(true, null)))).Code;
+        Task Search(EstateWebsitePropertyFilterInput f) => Public(new GetEstateWebsitePropertiesQuery(code, f, EstateWebsitePropertySort.Featured, 1, 12));
+
+        await Search(new EstateWebsitePropertyFilterInput { Purpose = PropertyPurpose.Sale });                                  // the /buy page alone
+        await Search(new EstateWebsitePropertyFilterInput { Purpose = PropertyPurpose.Sale, Text = "something nice" });         // nothing readable
+        await Search(new EstateWebsitePropertyFilterInput { Purpose = PropertyPurpose.Sale, Text = "3 bhk flat, sector 82" });
+
+        List<BsonDocument> rows = [];
+        await host.WithAsync(CompanyA, async sp => rows = await sp.GetRequiredService<IMongoDatabase>().GetCollection<BsonDocument>("re_demand_signals")
+            .Find(FilterDefinition<BsonDocument>.Empty).ToListAsync());
+        var row = Assert.Single(rows);
+        Assert.Equal(("sector 82", 3), (row["localityKey"].AsString, row["bhk"].AsBsonArray.Single().AsInt32));
+        Assert.DoesNotContain("bhk flat", row.ToJson());
+    }
+
+    [Fact]
     public async Task A_website_search_without_a_purpose_joins_the_same_group_of_sale_else_rent_and_stands_alone_only_without_either()
     {
         Task<RequirementDto> Rent(string lead, string locality) => host.SendAs(CompanyA, new SaveRequirementCommand(null, new RequirementInput

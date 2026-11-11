@@ -182,9 +182,11 @@ public sealed class ReviewFixTests(MongoFixture mongo) : IAsyncLifetime
         await Search(new() { Purpose = PropertyPurpose.Sale, City = "mohali", Locality = "sector-70" });           // known: kept as the list spells it
         await Search(new() { Purpose = PropertyPurpose.Sale, City = "Ludhiana", Locality = "Haxor Street 9" });    // unknown: "*"
         await Search(new() { Purpose = PropertyPurpose.Rent, Locality = new string('x', 500) });                     // too long: "*"
+        await Search(new() { Purpose = PropertyPurpose.Rent, Locality = "Haxor Street 9", Bhk = [3] });              // unknown place, a BHK left
         List<DemandSignalDocument> rows = [];
         await host.WithAsync(CompanyA, async sp => rows = await Collection<DemandSignalDocument>(sp, "re_demand_signals").Find(_ => true).ToListAsync());
-        Assert.Equal(3, rows.Count);
+        // Once the unknown place is dropped, the first two say only "sale" / "rent": not counted (QA 2026-11-11).
+        Assert.Equal(2, rows.Count);
         var known = rows.Single(r => r.LocalityKey is not null);
         Assert.Equal(("Mohali", "Sector 70", "sector 70"), (known.City, known.Locality, known.LocalityKey));
         Assert.All(rows.Where(r => r != known), r => Assert.True(r.City is null && r.Locality is null && r.LocalityKey is null));
@@ -198,14 +200,14 @@ public sealed class ReviewFixTests(MongoFixture mongo) : IAsyncLifetime
         await Search(new() { Purpose = PropertyPurpose.Sale, Bhk = [4] });
         await Search(new() { Purpose = PropertyPurpose.Sale, City = "mohali", Locality = "sector-70" });
         await host.WithAsync(CompanyA, async sp => rows = await Collection<DemandSignalDocument>(sp, "re_demand_signals").Find(_ => true).ToListAsync());
-        Assert.Equal(504, rows.Count);
+        Assert.Equal(503, rows.Count);
         var other = rows.Single(r => r.Key == DemandSignals.OverflowKey);
         Assert.Equal((2, (PropertyPurpose?)null, 0), (other.Count, other.Purpose, other.Bhk.Count));
         Assert.Equal(2, rows.Single(r => r.LocalityKey == "sector 70").Count);
 
         // The report reads them (bounded) and counts every search.
         var report = await host.SendAs(CompanyA, new GetDemandReportQuery(null, null, [DemandGroupBy.Locality]));
-        Assert.Equal(3 + 500 + 3, report.Totals.Single(t => t.Source == DemandSource.WebsiteSearch).Count);
+        Assert.Equal(2 + 500 + 3, report.Totals.Single(t => t.Source == DemandSource.WebsiteSearch).Count);
     }
 
     // ── 3. Budgets out of free text ────────────────────────────────────────────────────────────────────────

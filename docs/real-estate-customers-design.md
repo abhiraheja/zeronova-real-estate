@@ -360,7 +360,7 @@ The rules:
 | GST on commercial under-construction (12% or 18%) | — | **Not verified**; not used by C5 (brokerage GST stays 18%) |
 
 Not done in C5: 26QB / 16B and 27Q / 16A tracking per payment; the collector (circle) rate as the duty base; a deposit
-cap warning (Model Tenancy Act); a separate Chandigarh tenancy template; the double-sale lock; colony status; the "EC"
+cap warning (Model Tenancy Act); a separate Chandigarh tenancy template; the double-sale lock (built 2026-11-11, section 8.5); colony status; the "EC"
 step in Punjab registered transfers (fard / jamabandi); the allotment letter and builder-buyer agreement (P2).
 
 **The WhatsApp template the dealer creates** (in the app's WhatsApp templates — zeronova-social
@@ -478,3 +478,26 @@ After C1–C5 went to dev, a review found these; each has a test in `ReviewFixTe
   seller is resident at one rate). A non-resident seller's s.195 line stays separate. `DealTdsDto.ratePercent` is unchanged:
   the blended rate over the whole price (a resident 50% and an NRI 50% is 0.5%). The TDS on an amount is each resident
   seller's part rounded and summed. The ready agreements use `tds.sellers` ("1% of Harpreet Singh's share (Rs. 42,500/-)").
+
+## 8.5 QA fixes 2026-11-11
+
+From the team's test report (bugs.pdf).
+
+- **Double-sale lock** (`DealLock` in `DealFeatures.cs`):
+  - Several deals may sit at Offer on one property. Only one may be at Token, Agreement, Transfer or Registry; moving a
+    second one there is refused ("D-0005 already has the token for P-0025").
+  - A deal never starts, or moves to Token or Completed, on a sold, rented or withdrawn property.
+  - Reaching Token sets the property to Token received and drops its new matches; cancelling the token's deal puts it
+    back to Available and matches it again.
+  - Completing a deal cancels the other open deals on the property ("P-0025 went to D-0006").
+- **Website searches in the demand report:** the words typed in the search box are read the way an enquiry's "wanted"
+  is (BHK, type, a sector the company lists, an amount) and only those are kept, never the text. A search that says only
+  sale or rent is not counted (it made a "Sale · anything" row that grew with every typed search).
+- **App:** the deal page never shows one blended TDS rate "on the full price": with mixed sellers it lists each resident
+  seller's rate and amount and a s.195 line for a non-resident. The requirement, Add enquiry and Start deal dialogs say
+  what is missing instead of a silently grey button (a walk-in typed in full is added on Save). The rentals chip says
+  "Starts …" or "Due on day …" until this month's rent is recorded in full. The shared date picker zooms out to months
+  and years from its heading.
+- **Core:** each Real Estate (and Tutor and Dispatch) feature has its own permission module, so the role editor shows a
+  row per feature instead of one row that kept only two codes; the editor also gives any code that does not fit a free
+  View or Manage box (host, reply, take) its own row.

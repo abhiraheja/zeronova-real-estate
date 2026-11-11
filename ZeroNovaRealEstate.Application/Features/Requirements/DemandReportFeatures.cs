@@ -28,17 +28,35 @@ public sealed class DemandSignals(IDemandSignalRepository signals, ILocalityRepo
     public const int MaxName = 60;
     public const string OverflowKey = "other";
 
+    /// <param name="text">
+    /// The words typed in the search box. Only what <see cref="DemandText"/> reads from them is kept (BHK, types, a sector
+    /// the company lists, an amount), and only where the filters did not say it already — never the text itself.
+    /// </param>
     public async Task RecordEmptySearchAsync(string companyId, PropertyPurpose? purpose, IReadOnlyList<PropertyType>? types, string? city, string? locality,
-        decimal? priceFrom, decimal? priceTo, IReadOnlyList<int>? bhk, CancellationToken ct)
+        decimal? priceFrom, decimal? priceTo, IReadOnlyList<int>? bhk, CancellationToken ct, string? text = null)
     {
         try
         {
             var typeList = (types ?? []).Where(Enum.IsDefined).Distinct().Order().ToList();
             var bhkList = (bhk ?? []).Where(b => b is > 0 and <= 20).Distinct().Order().ToList();
+            if (EstateText.Clean(text) is { Length: <= 200 } words)
+            {
+                purpose ??= DemandText.Purpose(words);
+                if (typeList.Count == 0)
+                    typeList = [.. DemandText.Types(words).Distinct().Order()];
+                if (bhkList.Count == 0)
+                    bhkList = [.. DemandText.Bhk(words, false).Where(b => b is > 0 and <= 20).Distinct().Order()];
+                locality ??= DemandText.Sector(words);
+                if (priceFrom is null && priceTo is null && DemandText.Amounts(words) is { Count: > 0 } amounts)
+                    (priceFrom, priceTo) = amounts.Count > 1 ? (amounts.Min(), amounts.Max()) : ((decimal?)null, amounts[0]);
+            }
             var cityName = await KnownCityAsync(companyId, city, ct);
             var (place, localityKey) = await KnownLocalityAsync(companyId, locality, ct);
             var band = BudgetBands.Of(purpose, priceFrom, priceTo);
-            if (purpose is null && typeList.Count == 0 && cityName is null && place is null && band is null && bhkList.Count == 0)
+            // A search that says only "sale" or "rent" (the page's own purpose, or words nothing could be read from) tells the
+            // dealer nothing to source; it is not counted (QA report 2026-11-11: a "Sale · anything" row that grew with every
+            // typed search).
+            if (typeList.Count == 0 && cityName is null && place is null && band is null && bhkList.Count == 0)
                 return;
             var key = string.Join('|', purpose?.ToString() ?? "*", string.Join(',', typeList), cityName?.ToLowerInvariant() ?? "*", localityKey ?? "*", band ?? "*",
                 string.Join(',', bhkList));
