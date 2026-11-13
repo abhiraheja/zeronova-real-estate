@@ -24,6 +24,14 @@ public sealed class HttpRequestContext(IHttpContextAccessor httpContextAccessor)
         (Claim(ClaimNames.Permissions) ?? string.Empty)
             .Split(' ', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 
+    public bool IsAi => Claim(ClaimNames.Actor) == ClaimNames.AiActor;
+
+    public string? AiCode => IsAi ? Claim(ClaimNames.AiCode) : null;
+
+    public string? ActorName => IsAi ? Claim(ClaimNames.Name) : null;
+
+    public string? RunId => IsAi ? Claim(ClaimNames.RunId) : null;
+
     private string? Claim(string type) =>
         Principal?.FindFirst(type)?.Value is { Length: > 0 } value ? value : null;
 }

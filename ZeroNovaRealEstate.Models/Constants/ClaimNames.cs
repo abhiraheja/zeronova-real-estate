@@ -20,6 +20,22 @@ public static class ClaimNames
 
     /// <summary>The company's products (Core T16): <c>BASIC</c> plus its industry, e.g. <c>"BASIC REAL_ESTATE"</c>.</summary>
     public const string Products = "products";
+
+    // ── AI Executives' tokens (Core T23) ─────────────────────────────────────────────────────────
+
+    /// <summary><c>ai</c> on an AI Executive's token; absent on a person's.</summary>
+    public const string Actor = "zn_actor";
+
+    public const string AiActor = "ai";
+
+    /// <summary>The Executive's code, e.g. <c>WLT-AI-0002</c>.</summary>
+    public const string AiCode = "zn_ai_code";
+
+    /// <summary>The Executive's display name. Shown with its code, never alone.</summary>
+    public const string Name = "name";
+
+    /// <summary>The office run the AI token was issued for.</summary>
+    public const string RunId = "zn_run_id";
 }
 
 /// <summary>Core's product codes (T16). This whole service is the Real Estate industry.</summary>

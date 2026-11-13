@@ -58,12 +58,17 @@ public sealed class TestHost : IAsyncDisposable
 
     /// <param name="encryptionKey">Null = Core's master key not set up.</param>
     /// <param name="realMedia">The real zeronova-media client with no address or key (video not set up) instead of <see cref="Media"/>.</param>
+    /// <summary>This host's own database — dropped when the host is disposed (see <see cref="DisposeAsync"/>).</summary>
+    private readonly string connectionString;
+    private readonly string databaseName = "zeronova-real-estate-tests-" + Guid.NewGuid().ToString("N")[..12];
+
     public TestHost(MongoFixture mongo, string? encryptionKey = "default", bool realMedia = false)
     {
+        connectionString = mongo.Runner.ConnectionString;
         var configuration = new ConfigurationBuilder().AddInMemoryCollection(new Dictionary<string, string?>
         {
             ["Mongo:ConnectionString"] = mongo.Runner.ConnectionString,
-            ["Mongo:DatabaseName"] = "zeronova-real-estate-tests-" + Guid.NewGuid().ToString("N")[..12],
+            ["Mongo:DatabaseName"] = databaseName,
             ["Messaging:ProjectId"] = "zeronova-tests",
             ["Messaging:EnsureResources"] = "false",
             ["Messaging:Source"] = "zeronova-real-estate-tests",
@@ -147,7 +152,24 @@ public sealed class TestHost : IAsyncDisposable
             await service.StartAsync(CancellationToken.None);
     }
 
-    public ValueTask DisposeAsync() => provider.DisposeAsync();
+    /// <summary>
+    /// Drops this host's database, then disposes the host. **Not tidiness — what keeps the run alive**: every test makes
+    /// its own database on the one shared mongod, and each collection and index is a file WiredTiger keeps open. Kept,
+    /// a full run passed the open-file limit about two minutes in (macOS: WiredTiger error 24, EMFILE), mongod aborted,
+    /// and every later test timed out at server selection. Never fails a test: cleanup is best effort.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        await provider.DisposeAsync();
+        try
+        {
+            await new MongoDB.Driver.MongoClient(connectionString).DropDatabaseAsync(databaseName);
+        }
+        catch (Exception)
+        {
+            // The run goes on; a database left behind costs files, not correctness.
+        }
+    }
 }
 
 /// <summary>The caller: a member of <see cref="CompanyId"/>.</summary>

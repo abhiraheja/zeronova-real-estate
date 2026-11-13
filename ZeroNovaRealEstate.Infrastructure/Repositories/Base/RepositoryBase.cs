@@ -89,9 +89,13 @@ public abstract class RepositoryBase<TDocument> : IRepositoryBase<TDocument>
             ? new ChangedByModel
             {
                 ChangedById = Context.UserId ?? Context.AuthUserId ?? "UNKNOWN",
-                ChangedByName = Context.Email ?? "UNKNOWN",
-                ChangedByEmail = Context.Email ?? "UNKNOWN",
+                ChangedByName = Context.AiDisplayName() ?? Context.Email ?? "UNKNOWN",
+                ChangedByEmail = Context.IsAi ? Context.AiCode ?? "AI" : Context.Email ?? "UNKNOWN",
                 ChangedDate = DateTimeOffset.UtcNow,
+                // Core T23: an AI Executive is recorded by its code and the office run it acted in.
+                ChangedByKind = Context.IsAi ? "ai" : null,
+                ChangedByAiCode = Context.AiCode,
+                ChangedInRunId = Context.RunId,
             }
             : ChangedByModel.System();
 

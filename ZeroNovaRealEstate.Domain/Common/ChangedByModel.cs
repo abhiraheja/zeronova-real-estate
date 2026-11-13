@@ -17,6 +17,21 @@ public class ChangedByModel
     [BsonElement("changedByEmail")]
     public required string ChangedByEmail { get; set; }
 
+    /// <summary><c>ai</c> when an AI Executive made the change (Core T23); absent for a person or the system.</summary>
+    [BsonElement("changedByKind")]
+    [BsonIgnoreIfNull]
+    public string? ChangedByKind { get; set; }
+
+    /// <summary>The AI Executive's code (<c>WLT-AI-0002</c>) when one made the change.</summary>
+    [BsonElement("changedByAiCode")]
+    [BsonIgnoreIfNull]
+    public string? ChangedByAiCode { get; set; }
+
+    /// <summary>The office run an AI Executive made the change in.</summary>
+    [BsonElement("changedInRunId")]
+    [BsonIgnoreIfNull]
+    public string? ChangedInRunId { get; set; }
+
     [BsonElement("changedDate")]
     public DateTimeOffset ChangedDate { get; set; }
 
