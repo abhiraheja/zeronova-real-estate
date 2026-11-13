@@ -21,4 +21,25 @@ public interface IRequestContext
     string? CompanyId { get; }
 
     IReadOnlyCollection<string> Permissions { get; }
+
+    // ── Who acts, when it is an AI Executive (Core T23) — a person's token leaves these empty ──────
+
+    /// <summary>True on an AI Executive's token (<c>zn_actor = ai</c>). <see cref="UserId"/> is then the Executive's id.</summary>
+    bool IsAi => false;
+
+    /// <summary>The Executive's code, e.g. <c>WLT-AI-0002</c>.</summary>
+    string? AiCode => null;
+
+    /// <summary>The Executive's display name ("Riya").</summary>
+    string? ActorName => null;
+
+    /// <summary>The office run an AI token was issued for.</summary>
+    string? RunId => null;
+}
+
+/// <summary>How an AI Executive is named in records (Core T23): <c>Riya · AI (WLT-AI-0002)</c> — never the name alone.</summary>
+public static class RequestActor
+{
+    public static string? AiDisplayName(this IRequestContext context) =>
+        context.IsAi ? $"{context.ActorName ?? "AI Executive"} · AI ({context.AiCode ?? "?"})" : null;
 }
