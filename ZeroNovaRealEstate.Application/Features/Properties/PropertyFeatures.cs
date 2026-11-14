@@ -51,6 +51,21 @@ public sealed class GetPropertiesHandler(IPropertyRepository properties, IEstate
             query = query.Where(p => p.SizeSqFt >= sizeMin);
         if (f.SizeMaxSqFt is { } sizeMax)
             query = query.Where(p => p.SizeSqFt <= sizeMax);
+        if (f.PlotAreaMin is not null || f.PlotAreaMax is not null)
+        {
+            // "5 marla" in the dealer's own units, 1% either side for the rounding of a marla in sq ft.
+            var units = await EstateSettings.LoadAsync(settings, ct);
+            if (AreaMath.Model(f.PlotAreaMin, units) is { } landMin)
+            {
+                var least = landMin.SqFt * 0.99m;
+                query = query.Where(p => p.PlotArea != null && p.PlotArea.SqFt >= least);
+            }
+            if (AreaMath.Model(f.PlotAreaMax, units) is { } landMax)
+            {
+                var most = landMax.SqFt * 1.01m;
+                query = query.Where(p => p.PlotArea != null && p.PlotArea.SqFt <= most);
+            }
+        }
         if (f.Bhk is { Count: > 0 } bhk)
         {
             var list = bhk.Select(b => (int?)b).ToList();

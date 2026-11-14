@@ -377,11 +377,14 @@ public sealed class MatchEngine(
             }
         }
 
-        // Size, in sq ft, a little either side.
+        // Size, in sq ft, a little either side. Asked in a land unit ("5 marla ka ghar", "1 kanal"), it is the plot
+        // that is compared — a 5 marla house's built-up area is not 5 marla.
         if (r.SizeMin is not null || r.SizeMax is not null)
         {
-            if (p.SizeSqFt is { } size)
+            var land = AreaMath.IsLandUnit((r.SizeMin ?? r.SizeMax)!.Unit);
+            if ((land ? p.PlotArea?.SqFt : p.SizeSqFt) is { } size)
             {
+                var said = land && p.PlotArea is { } plot ? $"Plot {AreaMath.Label(plot)}" : $"Size {size:#,##0} sq ft";
                 if (r.SizeMin is { } lo && size < lo.SqFt * 0.9m)
                     return no;
                 if (r.SizeMax is { } hi && size > hi.SqFt * 1.2m)
@@ -389,10 +392,10 @@ public sealed class MatchEngine(
                 if ((r.SizeMin is { } lo2 && size < lo2.SqFt) || (r.SizeMax is { } hi2 && size > hi2.SqFt))
                 {
                     score -= 10;
-                    reasons.Add($"Size {size:#,##0} sq ft (near the range)");
+                    reasons.Add($"{said} (near the range)");
                 }
                 else
-                    reasons.Add($"Size {size:#,##0} sq ft");
+                    reasons.Add(said);
             }
             else
             {

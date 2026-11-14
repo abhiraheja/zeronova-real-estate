@@ -57,7 +57,7 @@ public sealed class VisitTests(MongoFixture mongo) : IAsyncLifetime
         var visit = await host.SendAs(CompanyA, new ScheduleVisitCommand(Visit(at)));
 
         Assert.Equal((VisitStatus.Scheduled, KeysWith.Owner, "After 4 PM", "919888800000"), (visit.Status, visit.KeysWith, visit.VisitTimings, visit.OwnerPhone));
-        Assert.Equal("Namaste Rahul, your visit to see the 200 sq yd Plot in Sector 70 is fixed for Mon 28 Oct, 5:30 PM. We meet at Sector 70 market gate. — Sharma Properties",
+        Assert.Equal("Namaste Rahul, your visit to see the 200 Gaj Plot in Sector 70 is fixed for Mon 28 Oct, 5:30 PM. We meet at Sector 70 market gate. — Sharma Properties",
             visit.ClientMessage);
         Assert.StartsWith("Namaste Gaurav Mittal, a customer will visit", visit.OwnerMessage);
 
@@ -100,7 +100,7 @@ public sealed class VisitTests(MongoFixture mongo) : IAsyncLifetime
         SharedPropertyDto page = null!;
         await host.RunAsJobAsync(async sp => page = await sp.GetRequiredService<ZeroNova_Packages.MediatR.Interfaces.IMediator>().Send(new GetSharedPropertyQuery(share.Token)));
         await host.RunAsJobAsync(async sp => await sp.GetRequiredService<ZeroNova_Packages.MediatR.Interfaces.IMediator>().Send(new GetSharedPropertyQuery(share.Token)));
-        Assert.Equal(("200 sq yd Plot in Sector 70", "Sharma Properties", "PBRERA-SAS79-REA0123", true), (page.Title, page.DealerName, page.ReraNumber, page.StillAvailable));
+        Assert.Equal(("200 Gaj Plot in Sector 70", "Sharma Properties", "PBRERA-SAS79-REA0123", true), (page.Title, page.DealerName, page.ReraNumber, page.StillAvailable));
         Assert.DoesNotContain("UNIT-918X", System.Text.Json.JsonSerializer.Serialize(page));   // never the unit number or the owner
         Assert.DoesNotContain("11000000", System.Text.Json.JsonSerializer.Serialize(page));
 

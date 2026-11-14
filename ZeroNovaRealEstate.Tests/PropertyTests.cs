@@ -46,7 +46,7 @@ public sealed class PropertyTests(MongoFixture mongo) : IAsyncLifetime
         var second = await Add(Plot("Sector 71"));
 
         Assert.Equal(("P-0001", "P-0002"), (plot.Code, second.Code));
-        Assert.Equal("200 sq yd Corner Plot in Sector 70", plot.Title);
+        Assert.Equal("200 Gaj Corner Plot in Sector 70", plot.Title);
         Assert.Equal(1800m, plot.SizeSqFt);
         Assert.Equal(6667m, plot.RatePerSqFt);
         Assert.Null(plot.Bhk);
@@ -61,7 +61,7 @@ public sealed class PropertyTests(MongoFixture mongo) : IAsyncLifetime
         var plot = await Add(new PropertyInput { Purpose = PropertyPurpose.Sale, Type = PropertyType.Plot, Locality = "Model Town", PlotArea = new AreaInput(10, AreaUnit.Marla) });
 
         Assert.Equal((2250m, "Ludhiana"), (plot.SizeSqFt, plot.City));
-        Assert.Equal("10 marla Plot in Model Town", plot.Title);
+        Assert.Equal("10 Marla Plot in Model Town", plot.Title);
     }
 
     [Fact]

@@ -455,6 +455,17 @@ public sealed class PropertySearchInput
     public decimal? PriceMax { get; init; }
     public decimal? SizeMinSqFt { get; init; }
     public decimal? SizeMaxSqFt { get; init; }
+
+    /// <summary>
+    /// The land (plot area) at least this, in any unit — how a Punjab dealer sizes a house or a plot: "5 marla",
+    /// "1 kanal", "200 gaj" (sq yd). Converted with the dealer's own marla / kanal (settings) and compared a little
+    /// either side (1%), so "exactly 5 marla" is the same value in both <see cref="PlotAreaMin"/> and
+    /// <see cref="PlotAreaMax"/>. A property with no plot area is left out.
+    /// </summary>
+    public AreaInput? PlotAreaMin { get; init; }
+
+    /// <summary>The land at most this, in any unit (see <see cref="PlotAreaMin"/>).</summary>
+    public AreaInput? PlotAreaMax { get; init; }
     public IReadOnlyList<int>? Bhk { get; init; }
     public IReadOnlyList<Facing>? Facings { get; init; }
     public bool? Corner { get; init; }

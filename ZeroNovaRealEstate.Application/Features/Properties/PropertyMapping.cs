@@ -59,7 +59,8 @@ public sealed class PropertyMapper(
 
     private static PropertyDto Map(PropertyDocument p, EstateSettingsDocument s, IReadOnlyDictionary<string, string> labels,
         IReadOnlyDictionary<string, PartyDocument> owners, int openMatches, bool seesOwners, bool seesHold, DateTime now) => new(
-        p.Id, p.Code, p.Title, p.Purpose, p.Type, p.Status, p.HoldUntil, EstateSettings.IsStale(p, s, now),
+        // Built from the fields each time (a stand-alone property), so a title saved before the land-first wording reads the same.
+        p.Id, p.Code, p.ProjectId is null ? PropertyWriter.Title(p) : p.Title, p.Purpose, p.Type, p.Status, p.HoldUntil, EstateSettings.IsStale(p, s, now),
         new DateTimeOffset(DateTime.SpecifyKind(p.LastConfirmedAt, DateTimeKind.Utc)), p.ConfirmedVia,
         p.City, p.Locality, p.Society, p.Block, seesOwners || p.ProjectId is not null ? p.UnitNumber : null, p.Latitude, p.Longitude,
         AreaMath.Dto(p.PlotArea), AreaMath.Dto(p.BuiltUpArea), AreaMath.Dto(p.CarpetArea), AreaMath.Dto(p.SuperArea), p.SizeSqFt,
@@ -208,9 +209,13 @@ public static class PropertyWriter
             PropertyType.Pg => "PG",
             _ => p.Type.ToString(),
         };
-        var lead = p.Bhk is { } bhk ? $"{bhk} BHK " : p.PlotArea is { } plot && !Matching.MatchEngine.IsBuilt(p.Type) ? $"{AreaMath.Label(plot)} " : string.Empty;
+        // The land leads when the dealer sized it as land is sized ("5 Marla House", "1 Kanal 5 BHK Kothi", "200 Gaj
+        // Plot"), or for land itself; a flat's sq ft does not.
+        var land = p.PlotArea is { } plot && (AreaMath.IsLandUnit(plot.Unit) || !Matching.MatchEngine.IsBuilt(p.Type))
+            ? $"{AreaMath.TitleLabel(plot)} " : string.Empty;
+        var bhk = p.Bhk is { } b ? $"{b} BHK " : string.Empty;
         var corner = p.Corner && !Matching.MatchEngine.IsBuilt(p.Type) ? "Corner " : string.Empty;
-        return $"{lead}{corner}{type} in {p.Locality}";
+        return $"{land}{bhk}{corner}{type} in {p.Locality}";
     }
 
     private static decimal? Positive(decimal? value) => value is { } v ? (v < 0 ? throw new ValidatorException("Amounts and sizes cannot be negative.") : v) : null;

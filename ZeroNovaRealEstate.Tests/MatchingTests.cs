@@ -43,6 +43,47 @@ public sealed class MatchingTests(MongoFixture mongo) : IAsyncLifetime
     };
 
     [Fact]
+    public async Task A_house_is_named_searched_and_matched_by_its_land_in_marla_kanal_or_gaj()
+    {
+        // The dealer's words (2026-11-14): "5 marle ka ghar", "1 kanal", "200 gaj ka plot".
+        var house = await host.SendAs(CompanyA, new SavePropertyCommand(null, new PropertyInput
+        {
+            Purpose = PropertyPurpose.Sale, Type = PropertyType.House, Locality = "Sector 22", Price = 37500000m, Bhk = 4,
+            PlotArea = new AreaInput(5, AreaUnit.Marla), BuiltUpArea = new AreaInput(4500, AreaUnit.SqFt),
+        }));
+        var kothi = await host.SendAs(CompanyA, new SavePropertyCommand(null, new PropertyInput
+        {
+            Purpose = PropertyPurpose.Sale, Type = PropertyType.House, Locality = "Sector 22", Price = 90000000m, PlotArea = new AreaInput(1, AreaUnit.Kanal),
+        }));
+        var flat = await host.SendAs(CompanyA, new SavePropertyCommand(null, new PropertyInput
+        {
+            Purpose = PropertyPurpose.Sale, Type = PropertyType.Flat, Locality = "Sector 22", Price = 9000000m, Bhk = 3, SuperArea = new AreaInput(1650, AreaUnit.SqFt),
+        }));
+        Assert.Equal("5 Marla 4 BHK House in Sector 22", house.Title);
+        Assert.Equal("1 Kanal House in Sector 22", kothi.Title);
+        Assert.Equal("3 BHK Flat in Sector 22", flat.Title);
+        Assert.Equal("200 Gaj Plot in Sector 70", (await host.SendAs(CompanyA, new SavePropertyCommand(null, Plot()))).Title);
+
+        // "5 marle ke ghar": exactly 5 marla — in marla, or the same land in gaj; a kanal is 20 marla.
+        Task<PropertyPageDto> Land(AreaInput min, AreaInput? max = null) =>
+            host.SendAs(CompanyA, new GetPropertiesQuery(new PropertySearchInput { Types = [PropertyType.House], PlotAreaMin = min, PlotAreaMax = max ?? min }));
+        Assert.Equal([house.Id], (await Land(new AreaInput(5, AreaUnit.Marla))).Items.Select(p => p.Id));
+        Assert.Equal([house.Id], (await Land(new AreaInput(151.25m, AreaUnit.SqYd))).Items.Select(p => p.Id));   // 5 × 272.25 / 9
+        Assert.Equal([kothi.Id], (await Land(new AreaInput(20, AreaUnit.Marla))).Items.Select(p => p.Id));
+        Assert.Equal(2, (await Land(new AreaInput(5, AreaUnit.Marla), new AreaInput(1, AreaUnit.Kanal))).TotalCount);
+
+        // A customer who wants "5 marla ka ghar" is matched by the plot, not by the 4,500 sq ft built on it.
+        var requirement = await host.SendAs(CompanyA, new SaveRequirementCommand(null, new RequirementInput
+        {
+            LeadId = "lead-5m", LeadName = "Gurpreet", LeadPhone = "9811122299", Purpose = PropertyPurpose.Sale, Types = [PropertyType.House],
+            Localities = ["Sector 22"], SizeMin = new AreaInput(5, AreaUnit.Marla), SizeMax = new AreaInput(6, AreaUnit.Marla),
+        }));
+        var match = Assert.Single(await host.SendAs(CompanyA, new GetMatchesQuery(null, requirement.Id, null)));
+        Assert.Equal(house.Id, match.PropertyId);
+        Assert.Contains("Plot 5 marla", match.Reasons);
+    }
+
+    [Fact]
     public async Task A_customer_who_came_before_the_property_is_told_when_it_arrives()
     {
         var requirement = await host.SendAs(CompanyA, new SaveRequirementCommand(null, WantsPlot()));

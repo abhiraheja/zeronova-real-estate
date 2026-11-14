@@ -158,6 +158,21 @@ public static class AreaMath
     public static AreaDto? Dto(AreaModel? model) => model is null ? null : new AreaDto(model.Value, model.Unit, model.SqFt);
 
     /// <summary>"200 sq yd", "10 marla", "1,800 sq ft".</summary>
+    /// <summary>
+    /// A unit land is measured in (marla, kanal, gaj = sq yd, bigha, acre …), not a floor area's sq ft or sq m. A size
+    /// in one of these is the land: it leads a title and is compared with the plot area.
+    /// </summary>
+    public static bool IsLandUnit(AreaUnit unit) => unit is not (AreaUnit.SqFt or AreaUnit.SqM);
+
+    /// <summary>A title's size, as a dealer says it: "5 Marla", "1 Kanal", "200 Gaj", "2 Acre", "1,800 Sq Ft".</summary>
+    public static string TitleLabel(AreaModel area) => area.Unit switch
+    {
+        AreaUnit.SqFt => $"{area.Value:#,##0.##} Sq Ft",
+        AreaUnit.SqYd => $"{area.Value:#,##0.##} Gaj",
+        AreaUnit.SqM => $"{area.Value:#,##0.##} Sq M",
+        _ => $"{area.Value:#,##0.##} {area.Unit}",
+    };
+
     public static string Label(AreaModel area) => area.Unit switch
     {
         AreaUnit.SqFt => $"{area.Value:#,##0.##} sq ft",

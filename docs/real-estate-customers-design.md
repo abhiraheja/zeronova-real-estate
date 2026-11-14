@@ -501,3 +501,23 @@ From the team's test report (bugs.pdf).
 - **Core:** each Real Estate (and Tutor and Dispatch) feature has its own permission module, so the role editor shows a
   row per feature instead of one row that kept only two codes; the editor also gives any code that does not fit a free
   View or Manage box (host, reply, take) its own row.
+
+## 8.6 Sizes in marla, kanal and gaj (2026-11-14)
+
+The first client (Punjab) names a house or a plot by its land: "5 marla ka ghar", "1 kanal ki kothi", "200 gaj ka plot".
+These are sizes, not property types, so the type list is unchanged.
+
+- **Title:** a property whose plot area was given in a land unit (anything but sq ft and sq m) leads with it: "5 Marla 4
+  BHK House in Sector 22", "1 Kanal House in Sector 22", "200 Gaj Plot in Sector 70" (a square yard is the dealer's
+  gaj). A flat with only a super area stays "3 BHK Flat in Sector 22". The list builds the title from the fields each
+  time, so properties saved before read the same; a stored title (search text, website) follows on the next save.
+- **Search:** `PropertySearchInput.plotAreaMin` / `plotAreaMax` take an `AreaInput` in any unit, converted with the
+  dealer's own marla and kanal and compared 1% either side; "exactly 5 marla" is the same value in both.
+- **Matching:** a requirement whose size is in a land unit is compared with the plot area, not the built-up area (a 5
+  marla house is not 5 marla of floor).
+- **App:** the Properties list shows the land ("5 marla") with the sq ft under it, and has a land filter (from, to,
+  unit: marla, kanal, gaj, bigha, acre, sq ft). The page reads `?q=&view=&type=&land=&landTo=&unit=`, so a link can
+  open it narrowed. The unit picker says "gaj (sq yd)".
+- **Copilot:** `find_properties` takes `land` ({value, to?, unit}) and `localities`, answers "kitne hain" from `total`,
+  and with `show_list` shows the properties as a list card in the reply (rows open the property; "See them all" opens the
+  narrowed list). `propose_property` reads "5 marle ka ghar" as a HOUSE with a 5 marla plot area.

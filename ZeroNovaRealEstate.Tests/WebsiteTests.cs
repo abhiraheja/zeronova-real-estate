@@ -150,7 +150,7 @@ public sealed class WebsiteTests(MongoFixture mongo) : IAsyncLifetime
 
         var plot = await Add(Plot());
         var shop = await Add(Shop());
-        Assert.Equal("200-sq-yd-corner-plot-for-sale-sector-82-mohali-p0002", plot.WebsiteSlug);
+        Assert.Equal("200-gaj-corner-plot-for-sale-sector-82-mohali-p0002", plot.WebsiteSlug);
         Assert.Equal("shop-for-rent-vip-road-zirakpur-p0003", shop.WebsiteSlug);
 
         // Projects: from the name; the code is added when another project has the name. Kept on a rename.
