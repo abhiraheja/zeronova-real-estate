@@ -222,15 +222,20 @@ public static class WebsiteListings
         return available <= Math.Max(3, total / 10) ? EstateWebsiteAvailability.FewLeft : EstateWebsiteAvailability.Available;
     }
 
-    /// <summary>A listed property for the public: a hold is the dealer's business, so on hold shows as available.</summary>
+    /// <summary>
+    /// A listed property for the public: a hold is the dealer's business, so on hold shows as available. Free text goes
+    /// through <see cref="PublicText"/>: no phone, email or house / flat / plot number reaches a customer.
+    /// </summary>
     public static EstateWebsitePropertyDto Map(PropertyDocument p) => new(
-        p.Id, p.Slug ?? string.Empty, p.Code, p.Title, p.Purpose, p.Type, p.Status == PropertyStatus.OnHold ? PropertyStatus.Available : p.Status, p.Featured, p.City, p.Locality, p.Society,
+        p.Id, p.Slug ?? string.Empty, p.Code, PublicText.ListingOr(p.Title), p.Purpose, p.Type, p.Status == PropertyStatus.OnHold ? PropertyStatus.Available : p.Status, p.Featured,
+        p.City, PublicText.ListingOr(p.Locality), PublicText.Listing(p.Society),
         AreaMath.Dto(p.PlotArea), AreaMath.Dto(p.BuiltUpArea), AreaMath.Dto(p.CarpetArea), AreaMath.Dto(p.SuperArea), p.SizeSqFt, p.FrontFeet, p.DepthFeet,
         p.Price, p.PriceValue is null, p.Negotiable, p.Rent, p.Deposit, p.Maintenance,
         p.Bhk, p.Bathrooms, p.Balconies, p.Floor, p.TotalFloors, p.Lift, p.CoveredParking, p.OpenParking, p.Furnishing, p.AgeYears, p.Construction,
-        p.PossessionDate, p.ServantRoom, p.PoojaRoom, p.StoreRoom, p.StudyRoom, p.PowerBackup, p.Gated, p.Amenities,
+        p.PossessionDate, p.ServantRoom, p.PoojaRoom, p.StoreRoom, p.StudyRoom, p.PowerBackup, p.Gated, PublicText.Listing(p.Amenities),
         p.Facing, p.Corner, p.ParkFacing, p.RoadWidthFeet, p.Tenure, p.Washrooms, p.Pantry,
-        p.AvailableFrom, p.TenantPreferences, p.PetsAllowed, [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], p.VideoUrl, p.Description);
+        p.AvailableFrom, p.TenantPreferences, p.PetsAllowed, [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], PublicText.Link(p.VideoUrl),
+        PublicText.Listing(p.Description));
 }
 
 /// <summary>Listed properties with their ready videos (D36): one query for the page.</summary>
@@ -275,7 +280,7 @@ public sealed class GetEstateWebsiteHandler(IWebsiteRepository websites, IProper
             .Concat(listedProjects.Select(p => (p.Locality, p.LocalityKey, p.City, Project: true))).ToList();
         var cities = places.Select(p => p.City).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase).Order(StringComparer.OrdinalIgnoreCase).ToList();
         var localities = places.GroupBy(p => p.LocalityKey)
-            .Select(g => new EstateWebsiteLocalityDto(g.First().Locality, WebsiteSlugs.Slugify(g.First().Locality), g.Select(x => x.City).FirstOrDefault(c => c is not null),
+            .Select(g => new EstateWebsiteLocalityDto(PublicText.ListingOr(g.First().Locality), WebsiteSlugs.Slugify(g.First().Locality), g.Select(x => x.City).FirstOrDefault(c => c is not null),
                 g.Count(x => !x.Project), g.Count(x => x.Project)))
             .OrderByDescending(l => l.Properties + l.Projects).ThenBy(l => l.Name, StringComparer.OrdinalIgnoreCase).ToList();
 
@@ -422,7 +427,7 @@ public sealed class GetEstateWebsitePropertyHandler(IWebsiteRepository websites,
         var similar = await SimilarAsync(p, company, fresh, ct);
         return WebsiteListings.IsListed(p, fresh)
             ? new EstateWebsitePropertyResultDto(EstateWebsiteListingState.Listed, p.Title, (await WebsiteVideos.MapAsync([p], videos, company, ct))[0], similar)
-            : new EstateWebsitePropertyResultDto(EstateWebsiteListingState.NoLongerAvailable, p.ShowOnWebsite ? p.Title : null, null, similar);
+            : new EstateWebsitePropertyResultDto(EstateWebsiteListingState.NoLongerAvailable, p.ShowOnWebsite ? PublicText.ListingOr(p.Title) : null, null, similar);
     }
 
     /// <summary>Listed properties for the same purpose in the same city: the same type first, the same locality, then the nearest price.</summary>
@@ -490,12 +495,13 @@ public sealed class GetEstateWebsiteProjectHandler(
 
         return new EstateWebsiteProjectDto(p.Id, p.Slug!, p.Name, p.Categories, p.Stage, p.LaunchDate, p.PossessionDate,
             [.. p.Reras.Select(r => new ReraDto(r.Number, r.State, r.RegisteredOn, r.ValidUntil, r.Url))],
-            p.City, p.Locality, p.Address, p.Latitude, p.Longitude,
+            p.City, p.Locality, PublicText.Contact(p.Address), p.Latitude, p.Longitude,
             [.. p.Landmarks.Select(l => new LandmarkDto(l.Name, l.DistanceKm, l.Minutes))], AreaMath.Dto(p.LandArea),
-            [.. p.Towers.Select(t => new TowerDto(t.Name, t.Floors))], [.. p.KeyFigures.Select(k => new KeyFigureDto(k.Label, k.Value))],
-            p.Overview, p.Highlights, p.Amenities, [.. p.Specifications.Select(x => new SpecificationDto(x.Section, x.Text))],
-            [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], p.VideoUrl, p.DroneUrl, ProjectMapper.Media(p.Brochure), ProjectMapper.Photo(p.SitePlan),
-            [.. ProjectMapper.Updates(p).Take(12)],
+            [.. p.Towers.Select(t => new TowerDto(t.Name, t.Floors))], ProjectMapper.PublicFigures(p),
+            PublicText.Contact(p.Overview), PublicText.Contact(p.Highlights), PublicText.Contact(p.Amenities), ProjectMapper.PublicSpecifications(p),
+            [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], PublicText.Link(p.VideoUrl), PublicText.Link(p.DroneUrl), ProjectMapper.PublicMedia(p.Brochure),
+            ProjectMapper.Photo(p.SitePlan),
+            [.. ProjectMapper.PublicUpdates(p).Take(12)],
             [.. planRows.Select(x => PlanText.Plan(x, p.Milestones))],
             [.. types.Select(t => new EstateWebsiteUnitTypeDto(t.Name, t.Type, t.Bhk, t.Bathrooms, t.Balconies, AreaMath.Dto(t.CarpetArea), AreaMath.Dto(t.BuiltUpArea),
                 AreaMath.Dto(t.SuperArea), AreaMath.Dto(t.PlotArea), t.FrontFeet, t.DepthFeet, ProjectMapper.Photo(t.FloorPlan), stock.FromPrice([t]), t.PriceOnRequest,

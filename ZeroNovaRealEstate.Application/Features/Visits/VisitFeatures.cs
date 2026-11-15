@@ -237,7 +237,7 @@ public sealed class VisitMapper(IPropertyRepository properties, IProjectReposito
             var title = p?.Title ?? project!.Name;
             var owner = p?.Owners.FirstOrDefault()?.PartyId is { } oid ? owners.GetValueOrDefault(oid) : null;
             var when = Drafts.When(v.At);
-            var client = $"Namaste {v.LeadName ?? "ji"}, your visit to see {(p is not null ? "the " + p.Title : project!.Name)} is fixed for {when}."
+            var client = $"Namaste {v.LeadName ?? "ji"}, your visit to see {(p is not null ? "the " + PublicText.ListingOr(p.Title) : project!.Name)} is fixed for {when}."
                 + (v.MeetingPoint is { } mp ? $" We meet at {mp}." : string.Empty)
                 + (s.DealerName is { } dn ? $" — {dn}" : string.Empty);
             var ownerText = scope.SeesOwners && owner is not null
@@ -366,10 +366,13 @@ public sealed class GetSharedPropertyHandler(IShareRepository shares, IPropertyR
         IReadOnlyList<Models.Videos.EstatePublicVideoDto> shown = p.IsDeleted ? []
             : p.ProjectId is { } project ? await videos.PublicAsync(Models.Videos.EstateListingKind.Project, project, share.CompanyId, ct)
             : await videos.PublicAsync(Models.Videos.EstateListingKind.Property, p.Id, share.CompanyId, ct);
-        return new SharedPropertyDto(p.Title, p.Purpose, p.Type, p.City, p.Locality, p.Society, AreaMath.Dto(p.PlotArea), AreaMath.Dto(p.BuiltUpArea),
+        // Free text through PublicText: no phone, email or house / flat / plot number on a customer's page.
+        return new SharedPropertyDto(PublicText.ListingOr(p.Title), p.Purpose, p.Type, p.City, PublicText.ListingOr(p.Locality), PublicText.Listing(p.Society),
+            AreaMath.Dto(p.PlotArea), AreaMath.Dto(p.BuiltUpArea),
             AreaMath.Dto(p.CarpetArea), AreaMath.Dto(p.SuperArea), onRequest ? null : p.Price, p.Negotiable, p.Rent, p.Deposit, p.Bhk, p.Bathrooms, p.Floor, p.TotalFloors,
-            p.Furnishing, p.Facing, p.Corner, p.ParkFacing, p.Amenities, [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], p.VideoUrl,
-            s.DealerName, s.DealerPhone, s.ReraNumber, !p.IsDeleted && p.Status is PropertyStatus.Available or PropertyStatus.OnHold, p.Description) { Videos = shown };
+            p.Furnishing, p.Facing, p.Corner, p.ParkFacing, PublicText.Listing(p.Amenities), [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], PublicText.Link(p.VideoUrl),
+            s.DealerName, s.DealerPhone, s.ReraNumber, !p.IsDeleted && p.Status is PropertyStatus.Available or PropertyStatus.OnHold, PublicText.Listing(p.Description))
+        { Videos = shown };
     }
 }
 
@@ -397,7 +400,7 @@ internal static class ShareMapping
     {
         var url = $"{options.BaseUrl.TrimEnd('/')}/p/{s.Token}";
         var price = !priceOnRequest && p.PriceValue is { } v ? $"\n{EstateText.Rupees(v)}{(p.Purpose == PropertyPurpose.Rent ? " / month" : string.Empty)}" : string.Empty;
-        var message = $"Namaste {leadName ?? "ji"}, here is a property for you: {p.Title}{price}\nPhotos and details: {url}";
+        var message = $"Namaste {leadName ?? "ji"}, here is a property for you: {PublicText.ListingOr(p.Title)}{price}\nPhotos and details: {url}";
         return new ShareDto(s.Id, s.Token, url, p.Id, s.RequirementId, s.Opens,
             s.LastOpenedAt is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null,
             new DateTimeOffset(DateTime.SpecifyKind(s.CreatedAt, DateTimeKind.Utc)), message, s.Enquiries);

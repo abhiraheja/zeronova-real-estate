@@ -82,7 +82,7 @@ public sealed class SendMatchMessageHandler(
         {
             var share = await mediator.Send(new CreateShareCommand(property.Id, requirement.Id), ct);
             shareUrl = share.Url;
-            title = property.Title;
+            title = PublicText.ListingOr(property.Title);
             price = onRequest || property.PriceValue is not { } value
                 ? "Price on request"
                 : EstateText.Rupees(value) + (property.Purpose == PropertyPurpose.Rent ? " a month" : string.Empty);

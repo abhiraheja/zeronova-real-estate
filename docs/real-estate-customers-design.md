@@ -521,3 +521,29 @@ These are sizes, not property types, so the type list is unchanged.
 - **Copilot:** `find_properties` takes `land` ({value, to?, unit}) and `localities`, answers "kitne hain" from `total`,
   and with `show_list` shows the properties as a list card in the reply (rows open the property; "See them all" opens the
   narrowed list). `propose_property` reads "5 marle ka ghar" as a HOUSE with a 5 marla plot area.
+
+## 8.7 What a customer may read (2026-11-15)
+
+Owner's ask: a property shared with a client or listed on the public website shows the place and the property, never
+what lets someone go round the dealer — the owner's name, mobile, email, or the house / flat / plot number.
+
+Owners, `UnitNumber`, `Block`, notes and the owner's expectation never left the service. The gap was free text the
+dealer types, which went out as typed. `PublicText` (`Features/Common/EstateCommon.cs`) now cleans every outward path:
+
+| Path | Cleaned |
+|---|---|
+| Website listing, property page, "no longer available" title, locality list | title, locality, society, amenities, description (`Listing`), video link (`Link`) |
+| Share page `/p/{token}` | the same |
+| Website project page, share page `/pj/{token}` | address, overview, highlights, amenities, key figures, specifications, updates, brochure name (`Contact`), video and drone links |
+| Videos on any public page | title (`Listing`) — it is often the uploaded file's name |
+| Messages to a customer: share, project share, "tell customer" (draft and template), visit | the title or project name |
+
+- `Listing` takes out phone numbers (mobile with or without +91 / 0, landline with STD code), email addresses and the
+  unit: "H.No 1234", "House No. 12-B", "#1234", "Flat C-1204", "Plot No 45/2", "Shop 12", "SCO 123", "Kothi no 7",
+  "मकान नंबर 1234". It keeps "Corner, Sector 22, Phase 11, Chandigarh", sizes ("5 marla", "Plot 200 gaj", "Flat 3
+  BHK", "2nd floor") and prices ("₹1,60,00,000": commas are never a phone's).
+- `Contact` (a builder's project) keeps the address and plot numbers, which are public for a project, and takes out
+  contacts only.
+- Read-time, so properties saved before this are cleaned too; members still see what they typed.
+- Not covered: a photo's storage key carries the uploaded file's name (fixed in the apps for new uploads), and a
+  dealer can still write a unit in words ("twelve hundred four").

@@ -552,4 +552,35 @@ public sealed class WebsiteTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Equal(project.Id, projectPage!.Id);
         Assert.DoesNotContain("Bansal", JsonSerializer.Serialize(projectPage));
     }
+
+    [Fact]
+    public async Task A_customer_never_reads_a_phone_an_email_or_the_house_number_the_dealer_typed()
+    {
+        var code = await WebsiteOn();
+        var kothi = await Add(Flat());
+        var saved = await host.SendAs(CompanyA, new SavePropertyCommand(kothi.Id, new PropertyInput
+        {
+            Purpose = PropertyPurpose.Sale, Type = PropertyType.House, City = "Chandigarh", Locality = "Sector 22", Bhk = 5, Price = 16000000m, ShowOnWebsite = true,
+            Corner = true, Society = "Garden Phase", Amenities = ["Park facing", "Call 98765 43210"], VideoUrl = "call 9876543210",
+            Description = "H.No 1234, corner, Sector 22, Phase 11. Owner Sharma ji 98765 43210, sharma@gmail.com. 5 marla, ₹1,60,00,000.",
+        }));
+
+        var item = Assert.Single((await Public(new GetEstateWebsitePropertiesQuery(code, new(), EstateWebsitePropertySort.Newest, 1, 12))).Items);
+        var page = await Public(new GetEstateWebsitePropertyQuery(code, saved.WebsiteSlug!));
+        var share = await host.SendAs(CompanyA, new Application.Features.Visits.CreateShareCommand(kothi.Id, null));
+        var shared = await Public(new Application.Features.Visits.GetSharedPropertyQuery(share.Token));
+
+        Assert.Equal("corner, Sector 22, Phase 11. Owner Sharma ji. 5 marla, ₹1,60,00,000.", item.Description);
+        Assert.Equal(item.Description, shared.Description);
+        Assert.Equal(["Park facing", "Call"], shared.Amenities);
+        Assert.Null(shared.VideoUrl);
+        foreach (var json in new[] { JsonSerializer.Serialize(item), JsonSerializer.Serialize(page), JsonSerializer.Serialize(shared), share.Message })
+        {
+            Assert.DoesNotContain("98765", json);
+            Assert.DoesNotContain("sharma@", json);
+            Assert.DoesNotContain("H.No", json); // the dealer's own phone may hold "1234"
+        }
+        // The dealer still sees all of it.
+        Assert.Contains("98765 43210", saved.Description);
+    }
 }

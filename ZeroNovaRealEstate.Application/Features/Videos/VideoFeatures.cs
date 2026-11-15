@@ -50,7 +50,8 @@ public sealed class EstateVideoBook(IEstateVideoRepository videos, IMediaClient 
     public static EstateVideoDto Dto(EstateVideoDocument v) => new(v.VideoId, v.ListingKind, v.ListingId, v.Title, v.Status, v.FailureReason, v.DurationSeconds,
         v.PosterUrl, v.SortOrder, new DateTimeOffset(DateTime.SpecifyKind(v.AddedAt, DateTimeKind.Utc)));
 
-    public static EstatePublicVideoDto Public(EstateVideoDocument v) => new(v.VideoId, v.Title, v.PosterUrl, v.DurationSeconds);
+    /// <summary>A video as the public sees it: its title (often the uploaded file's name) without a phone or unit number.</summary>
+    public static EstatePublicVideoDto Public(EstateVideoDocument v) => new(v.VideoId, PublicText.Listing(v.Title) ?? "Video", v.PosterUrl, v.DurationSeconds);
 
     /// <summary>A call to zeronova-media from a member's request: a refusal shows its message, a failure a plain one.</summary>
     public static async Task<T> CallAsync<T>(Func<Task<T>> call)

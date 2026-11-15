@@ -526,5 +526,18 @@ public sealed class ProjectMapper(
 
     public static MediaFileDto? Media(MediaFileModel? m) => m is null ? null : new MediaFileDto(m.Key, m.Url, m.Name);
 
+    // ── What the public sees of a project (website, share pages): contacts taken out, see PublicText ──
+
+    public static MediaFileDto? PublicMedia(MediaFileModel? m) => m is null ? null : new MediaFileDto(m.Key, m.Url, PublicText.Contact(m.Name));
+
+    public static IEnumerable<ConstructionUpdateDto> PublicUpdates(ProjectDocument p) =>
+        Updates(p).Select(u => u with { Text = PublicText.Contact(u.Text) ?? string.Empty });
+
+    public static List<KeyFigureDto> PublicFigures(ProjectDocument p) =>
+        [.. p.KeyFigures.Select(k => new KeyFigureDto(k.Label, PublicText.Contact(k.Value) ?? string.Empty)).Where(k => k.Value.Length > 0)];
+
+    public static List<SpecificationDto> PublicSpecifications(ProjectDocument p) =>
+        [.. p.Specifications.Select(x => new SpecificationDto(x.Section, PublicText.Contact(x.Text) ?? string.Empty)).Where(x => x.Text.Length > 0)];
+
     public static PhotoDto? Photo(PhotoModel? m) => m is null ? null : new PhotoDto(m.Key, m.Url);
 }

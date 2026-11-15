@@ -96,13 +96,14 @@ public sealed class GetSharedProjectHandler(IShareRepository shares, IProjectRep
         await shares.RecordOpenAsync(share.Id, company, clock.GetUtcNow().UtcDateTime, ct);
         var shown = p.IsDeleted ? [] : await videos.PublicAsync(Models.Videos.EstateListingKind.Project, p.Id, company, ct);
 
-        return new SharedProjectDto(p.Name, p.Categories, p.Stage, p.City, p.Locality, p.Address, p.Latitude, p.Longitude,
+        return new SharedProjectDto(p.Name, p.Categories, p.Stage, p.City, p.Locality, PublicText.Contact(p.Address), p.Latitude, p.Longitude,
             [.. p.Landmarks.Select(l => new LandmarkDto(l.Name, l.DistanceKm, l.Minutes))], AreaMath.Dto(p.LandArea),
-            [.. p.Towers.Select(t => new TowerDto(t.Name, t.Floors))], [.. p.KeyFigures.Select(k => new KeyFigureDto(k.Label, k.Value))],
-            p.Overview, p.Highlights, p.Amenities, [.. p.Specifications.Select(x => new SpecificationDto(x.Section, x.Text))],
-            [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], p.VideoUrl, p.DroneUrl, ProjectMapper.Media(p.Brochure), ProjectMapper.Photo(p.SitePlan),
+            [.. p.Towers.Select(t => new TowerDto(t.Name, t.Floors))], ProjectMapper.PublicFigures(p),
+            PublicText.Contact(p.Overview), PublicText.Contact(p.Highlights), PublicText.Contact(p.Amenities), ProjectMapper.PublicSpecifications(p),
+            [.. p.Photos.Select(x => new PhotoDto(x.Key, x.Url))], PublicText.Link(p.VideoUrl), PublicText.Link(p.DroneUrl), ProjectMapper.PublicMedia(p.Brochure),
+            ProjectMapper.Photo(p.SitePlan),
             [.. p.Reras.Select(r => new ReraDto(r.Number, r.State, r.RegisteredOn, r.ValidUntil, r.Url))], p.LaunchDate, p.PossessionDate,
-            [.. ProjectMapper.Updates(p).Take(12)],
+            [.. ProjectMapper.PublicUpdates(p).Take(12)],
             [.. types.Select(t =>
             {
                 var available = units[t.Id].Where(u => u.Status == PropertyStatus.Available).ToList();
@@ -120,7 +121,7 @@ internal static class ProjectShareMapping
     {
         var url = $"{options.BaseUrl.TrimEnd('/')}/pj/{s.Token}";
         var from = fromPrice is { } v ? $"\nFrom {EstateText.Rupees(v)}" : string.Empty;
-        var message = $"Namaste {leadName ?? "ji"}, here is a project for you: {p.Name}, {p.Locality}{from}\nPhotos, brochure and details: {url}";
+        var message = $"Namaste {leadName ?? "ji"}, here is a project for you: {PublicText.Contact(p.Name) ?? p.Name}, {PublicText.Contact(p.Locality) ?? p.Locality}{from}\nPhotos, brochure and details: {url}";
         return new ProjectShareDto(s.Id, s.Token, url, p.Id, s.RequirementId, s.Opens,
             s.LastOpenedAt is { } at ? new DateTimeOffset(DateTime.SpecifyKind(at, DateTimeKind.Utc)) : null,
             new DateTimeOffset(DateTime.SpecifyKind(s.CreatedAt, DateTimeKind.Utc)), message, s.Enquiries);

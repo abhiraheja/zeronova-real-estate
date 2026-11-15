@@ -201,3 +201,98 @@ public static class EstateSettings
     public static bool IsStale(ProjectDocument project, EstateSettingsDocument s, DateTime utcNow) =>
         project.Kind == Models.Projects.ProjectKind.Partner && project.LastConfirmedAt < utcNow.AddDays(-s.SaleFreshDays);
 }
+
+/// <summary>
+/// Free text a dealer typed, made safe for the public — the website, share pages, the messages a customer gets. A
+/// customer must reach the property through the dealer, so contact details always go: mobile and phone numbers, email
+/// addresses. For a resale listing (<see cref="Listing(string?)"/>) the exact unit goes too: "H.No 1234", "House No.
+/// 1234", "#1234", "Flat C-1204", "Plot No 45", "Shop 12", "SCO 123", "मकान नंबर 1234". The place stays: "Corner, Sector
+/// 22, Phase 11, Chandigarh"; and so do sizes and prices ("5 marla", "Flat 3 BHK", "₹1,60,00,000"). A builder's project
+/// (<see cref="Contact(string?)"/>) keeps its address and plot numbers — its site is public — and loses only contacts.
+/// </summary>
+public static partial class PublicText
+{
+    /// <summary>The text without phone numbers or email addresses; null when nothing is left.</summary>
+    public static string? Contact(string? value) => Tidy(Scrub(value, unit: false));
+
+    /// <summary>The text without contacts or the house, flat, plot or shop number; null when nothing is left.</summary>
+    public static string? Listing(string? value) => Tidy(Scrub(value, unit: true));
+
+    /// <summary>A required text (a title, a name): scrubbed, or the original when scrubbing would empty it.</summary>
+    public static string ListingOr(string value) => Listing(value) ?? value;
+
+    public static List<string> Listing(IEnumerable<string> values) => [.. values.Select(Listing).OfType<string>()];
+
+    public static List<string> Contact(IEnumerable<string> values) => [.. values.Select(Contact).OfType<string>()];
+
+    /// <summary>A video or drone link: only a web address, so no number hides in it.</summary>
+    public static string? Link(string? value) =>
+        Uri.TryCreate(value?.Trim(), UriKind.Absolute, out var uri) && (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp) ? uri.ToString() : null;
+
+    private static string? Scrub(string? value, bool unit)
+    {
+        if (string.IsNullOrWhiteSpace(value))
+            return null;
+        var text = Email().Replace(value, " ");
+        text = Mobile().Replace(text, " ");
+        text = Landline().Replace(text, " ");
+        if (unit)
+        {
+            text = UnitNumber().Replace(text, " ");
+            text = HashNumber().Replace(text, " ");
+        }
+        return text;
+    }
+
+    private static string? Tidy(string? value)
+    {
+        if (value is null)
+            return null;
+        var lines = value.Replace("\r\n", "\n").Split('\n').Select(line =>
+        {
+            var l = Gaps().Replace(line, " ");
+            l = EmptyCommas().Replace(l, ",");
+            l = SpaceBeforeComma().Replace(l, ",");
+            l = CommaBeforeStop().Replace(l, "$1");
+            return l.Trim().Trim(',', ';', ':', '-', '|', '/').Trim();
+        });
+        var text = string.Join("\n", lines).Trim();
+        return text.Length == 0 || !text.Any(char.IsLetterOrDigit) ? null : text;
+    }
+
+    [GeneratedRegex(@"[\p{L}\p{N}._%+-]+@[\p{L}\p{N}.-]+\.\p{L}{2,}", RegexOptions.CultureInvariant)]
+    private static partial Regex Email();
+
+    // An Indian mobile: optional +91 / 91 / 0, then 10 digits from 6–9, spaces, dots or dashes between them — never
+    // commas, so "₹1,60,00,000" is a price, not a phone.
+    [GeneratedRegex(@"(?<![\p{N}\p{L}])(?:\+\s?91[\s.-]?|91[\s.-]|0)?[6-9](?:[\s.-]?\p{N}){9}(?![\p{N}])", RegexOptions.CultureInvariant)]
+    private static partial Regex Mobile();
+
+    // A landline with its STD code: 0172-2701234, 0172 270 1234, +91 172 2701234.
+    [GeneratedRegex(@"(?<![\p{N}\p{L}])(?:\+\s?91[\s.-]?|0)\p{N}{2,4}[\s.-]?\p{N}{3,4}[\s.-]?\p{N}{3,4}(?![\p{N}])", RegexOptions.CultureInvariant)]
+    private static partial Regex Landline();
+
+    // "H.No 1234", "House No. 12-B", "Flat C-1204", "Plot No: 45", "Shop 12", "SCO 123", "Kothi No 7", "मकान नंबर 1234" — the
+    // word and its number. Not "Flat 3 BHK", "Plot 200 gaj", "House 5 marla", "Flat 2nd floor": a size, a count or a floor.
+    [GeneratedRegex(
+        @"(?<![\p{L}])(?:h\s*\.?\s*no|house(?:\s*(?:no|number|num))?|makaa?n(?:\s*(?:no|number))?|kothi(?:\s*(?:no|number))?|flat(?:\s*(?:no|number))?|plot(?:\s*(?:no|number))?|shop(?:\s*(?:no|number))?|unit(?:\s*(?:no|number))?|apartment(?:\s*(?:no|number))?|apt|villa(?:\s*(?:no|number))?|booth(?:\s*(?:no|number))?|showroom(?:\s*(?:no|number))?|office(?:\s*(?:no|number))?|sc[of](?:\s*(?:no|number))?|dss(?:\s*(?:no|number))?|मकान|फ्लैट|फ़्लैट|प्लॉट|प्लाट|कोठी|दुकान)(?:\s*(?:नंबर|नं|न)\.?)?\s*\.?\s*[:#-]?\s*(?:[\p{L}]{1,2}\s?-\s?)?\p{N}{1,5}(?![\p{N}])(?:[\p{L}](?![\p{L}]))?(?:\s?[-/]\s?[\p{L}\p{N}]{1,5}(?![\p{L}\p{N}]))?(?!\s*(?:bhk|rk|bed|bedroom|room|floor|storey|story|marla|marle|kanal|gaj|yard|yd|sq|ft|feet|foot|acre|bigha|cr|crore|lakh|lac|l\b|k\b|%|st\b|nd\b|rd\b|th\b|मरला|कनाल|गज))",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant)]
+    private static partial Regex UnitNumber();
+
+    // Chandigarh's "#1234" / "# 1234-B": a house number by its sign.
+    [GeneratedRegex(@"#\s?\p{N}{1,5}(?:\s?-?\s?[\p{L}\p{N}]{1,3}(?![\p{L}\p{N}]))?", RegexOptions.CultureInvariant)]
+    private static partial Regex HashNumber();
+
+    [GeneratedRegex(@"[ \t]{2,}")]
+    private static partial Regex Gaps();
+
+    [GeneratedRegex(@"(?:\s*,){2,}")]
+    private static partial Regex EmptyCommas();
+
+    [GeneratedRegex(@"\s+,")]
+    private static partial Regex SpaceBeforeComma();
+
+    // "Sharma ji, . 5 marla" → "Sharma ji. 5 marla": what was between them is gone.
+    [GeneratedRegex(@"\s*,?\s+([.;!?])")]
+    private static partial Regex CommaBeforeStop();
+}
