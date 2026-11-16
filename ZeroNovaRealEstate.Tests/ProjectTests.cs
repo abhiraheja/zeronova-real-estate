@@ -149,12 +149,12 @@ public sealed class ProjectTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Equal((4, "Sector 83"), (unit.Bhk, unit.Locality));
 
         // One unit added by hand, its own fields kept; its number may not repeat.
-        var corner = await host.SendAs(CompanyA, new SaveUnitCommand(null, new UnitInput
+        var corner = await host.SendAs(CompanyA, new SaveUnitCommand(null, new EstateUnitInput
         {
             ProjectId = project.Id, UnitTypeId = type.Id, UnitNumber = "B-1201", Tower = "B", Floor = 12, Corner = true, Facing = Facing.East,
         }));
         Assert.True(corner.Corner);
-        await Assert.ThrowsAsync<ValidatorException>(() => host.SendAs(CompanyA, new SaveUnitCommand(null, new UnitInput
+        await Assert.ThrowsAsync<ValidatorException>(() => host.SendAs(CompanyA, new SaveUnitCommand(null, new EstateUnitInput
         {
             ProjectId = project.Id, UnitTypeId = type.Id, UnitNumber = "b-1201", Tower = "B", Floor = 12,
         })));
@@ -205,7 +205,7 @@ public sealed class ProjectTests(MongoFixture mongo) : IAsyncLifetime
     {
         var (project, type) = await ProjectWithType();
         var units = await Generate(project.Id, type.Id, 4, 4, perFloor: 1);
-        var unit = await host.SendAs(CompanyA, new SaveUnitCommand(units[0].Id, new UnitInput
+        var unit = await host.SendAs(CompanyA, new SaveUnitCommand(units[0].Id, new EstateUnitInput
         {
             ProjectId = project.Id, UnitTypeId = type.Id, UnitNumber = "A-401", Tower = "A", Floor = 4, Corner = true,
         }));
@@ -252,7 +252,7 @@ public sealed class ProjectTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Equal((0m, 5950000m), (afterOc.Gst, afterOc.Total));
 
         // Its own price: not re-priced by a new version; the cost sheet still shows the list's lines.
-        await host.SendAs(CompanyA, new SaveUnitCommand(unit.Id, new UnitInput
+        await host.SendAs(CompanyA, new SaveUnitCommand(unit.Id, new EstateUnitInput
         {
             ProjectId = project.Id, UnitTypeId = type.Id, UnitNumber = "A-401", Tower = "A", Floor = 4, Corner = true, OwnPrice = 6000000m,
         }));
@@ -337,7 +337,7 @@ public sealed class ProjectTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Single(host.Bells.Sent);
 
         // A corner-only customer: one unit fits; when it is blocked none is left and the new match drops.
-        var corner = await host.SendAs(CompanyA, new SaveUnitCommand(units[10].Id, new UnitInput
+        var corner = await host.SendAs(CompanyA, new SaveUnitCommand(units[10].Id, new EstateUnitInput
         {
             ProjectId = project.Id, UnitTypeId = type.Id, UnitNumber = units[10].UnitNumber!, Tower = "A", Floor = units[10].Floor, Corner = true,
         }));

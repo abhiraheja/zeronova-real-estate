@@ -151,7 +151,7 @@ public sealed class VideoTests(MongoFixture mongo) : IAsyncLifetime
         {
             Name = "3 BHK", Type = PropertyType.Flat, Bhk = 3, SuperArea = new AreaInput(1250, AreaUnit.SqFt),
         }));
-        var unit = await host.SendAs(CompanyA, new SaveUnitCommand(null, new UnitInput { ProjectId = project.Id, UnitTypeId = type.Id, UnitNumber = "A-101", Floor = 1 }));
+        var unit = await host.SendAs(CompanyA, new SaveUnitCommand(null, new EstateUnitInput { ProjectId = project.Id, UnitTypeId = type.Id, UnitNumber = "A-101", Floor = 1 }));
         var onUnit = await Assert.ThrowsAsync<ValidatorException>(() => Start(EstateListingKind.Property, unit.Id));
         Assert.Contains("project's videos", onUnit.Message);
 
@@ -313,7 +313,7 @@ public sealed class VideoTests(MongoFixture mongo) : IAsyncLifetime
         {
             Name = "3 BHK", Type = PropertyType.Flat, Bhk = 3, SuperArea = new AreaInput(1250, AreaUnit.SqFt),
         }));
-        var unit = await host.SendAs(CompanyA, new SaveUnitCommand(null, new UnitInput { ProjectId = project.Id, UnitTypeId = type.Id, UnitNumber = "A-101", Floor = 1 }));
+        var unit = await host.SendAs(CompanyA, new SaveUnitCommand(null, new EstateUnitInput { ProjectId = project.Id, UnitTypeId = type.Id, UnitNumber = "A-101", Floor = 1 }));
         Assert.Equal([projectVideo], (await host.SendAs(CompanyA, new GetPropertyQuery(unit.Id))).Videos.Select(v => v.VideoId));
         var unitShare = await host.SendAs(CompanyA, new CreateShareCommand(unit.Id, null));
         Assert.Equal([projectVideo], (await Public(new GetSharedPropertyQuery(unitShare.Token))).Videos.Select(v => v.Id));

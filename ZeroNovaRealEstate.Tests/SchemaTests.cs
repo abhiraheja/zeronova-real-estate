@@ -76,6 +76,13 @@ public sealed class SchemaTests
         })
             Assert.Contains(field, sdl);
 
+        // The graph gateway stitches every service into one schema, and an input type whose name another service also
+        // uses takes the other's place there (2026-11-16: Tutor's UnitInput became this one and no unit could be made).
+        // Inputs here carry the Estate name; never the bare names other services already use.
+        Assert.Contains("input EstateUnitInput", sdl);
+        foreach (var taken in new[] { "input UnitInput ", "input PaymentInput ", "input SubjectInput ", "input TopicInput " })
+            Assert.DoesNotContain(taken, sdl);
+
         if (Environment.GetEnvironmentVariable("ZN_ESTATE_SDL_OUT") is { Length: > 0 } path)
             await File.WriteAllTextAsync(path, ForApp(sdl) + "\n");
     }

@@ -84,7 +84,7 @@ public sealed class ProjectMutation(IMediator mediator) : MutationBase
     /// <summary>One unit added (no id) or changed: number, tower, floor, its own fields, its own price.</summary>
     [RequirePermission(P.ProjectManage)]
     [GraphQLName("ZeroNova_saveEstateUnit")]
-    public Task<UnitDto> SaveUnit(string? propertyId, UnitInput input, CancellationToken ct) => mediator.Send(new SaveUnitCommand(propertyId, input), ct);
+    public Task<UnitDto> SaveUnit(string? propertyId, EstateUnitInput input, CancellationToken ct) => mediator.Send(new SaveUnitCommand(propertyId, input), ct);
 
     /// <summary>Available, blocked for a lead until a date, booked, sold or withdrawn.</summary>
     [RequirePermission(P.PropertyManage)]

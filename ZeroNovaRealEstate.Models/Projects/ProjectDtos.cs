@@ -304,7 +304,7 @@ public sealed class GenerateUnitsInput
 /// One unit, added or changed: its number, tower, floor and its own fields; the rest comes from its type and project.
 /// <see cref="OwnPrice"/> set = the unit's own price instead of the price list's cost sheet.
 /// </summary>
-public sealed class UnitInput
+public sealed class EstateUnitInput
 {
     public string ProjectId { get; init; } = string.Empty;
     public string UnitTypeId { get; init; } = string.Empty;

@@ -231,7 +231,7 @@ public sealed class GenerateUnitsHandler(
 /// Adds one unit (no id) or changes one: its number, tower, floor and own fields, and perhaps its own price (D22). The
 /// rest comes from its type and project. A unit stays in its project.
 /// </summary>
-public sealed record SaveUnitCommand(string? PropertyId, UnitInput Input) : IRequest<UnitDto>;
+public sealed record SaveUnitCommand(string? PropertyId, EstateUnitInput Input) : IRequest<UnitDto>;
 
 public sealed class SaveUnitValidator : AbstractValidator<SaveUnitCommand>
 {
