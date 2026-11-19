@@ -37,7 +37,8 @@ public sealed class ScheduleVisitValidator : AbstractValidator<ScheduleVisitComm
 }
 
 public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepository properties, IProjectRepository projects, IRequirementRepository requirements,
-    VisitMapper mapper, EstateScope scope, TimeProvider clock, IEnquiryRepository enquiries, Customers.CustomerBook customers)
+    VisitMapper mapper, EstateScope scope, TimeProvider clock, IEnquiryRepository enquiries, Customers.CustomerBook customers,
+    Enquiries.EnquiryLeadSync leadSync)
     : IRequestHandler<ScheduleVisitCommand, VisitDto>
 {
     public async Task<VisitDto> Handle(ScheduleVisitCommand request, CancellationToken ct)
@@ -85,8 +86,10 @@ public sealed class ScheduleVisitHandler(IVisitRepository visits, IPropertyRepos
         await visits.AddAsync(visit, ct);
         if (enquiry is not null)
         {
+            var before = Enquiries.EnquiryLeadSync.Before.Of(enquiry);
             Enquiries.EnquiryLinks.ToVisit(enquiry, visit.Id, clock.GetUtcNow().UtcDateTime);
             await enquiries.UpdateAsync(enquiry, ct);
+            await leadSync.ChangedAsync(enquiry, before, scope.UserIdOrNull, ct);
         }
         await customers.TouchAsync(visit.ContactId, [visit.LeadId], ct);
         return await mapper.OneAsync(visit, ct);

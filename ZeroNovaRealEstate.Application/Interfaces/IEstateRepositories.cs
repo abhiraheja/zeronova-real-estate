@@ -166,6 +166,12 @@ public interface ILeadCaptureProducer : IMessageProducer
     Task PublishAsync(LeadCapturedEnquiryEvent evt, string changedBy, CancellationToken ct = default);
 }
 
+/// <summary>An enquiry worked here (status, close, requirement or visit), for zeronova-lead to put on its lead.</summary>
+public interface ILeadEnquiryUpdateProducer : IMessageProducer
+{
+    Task PublishAsync(LeadEnquiryUpdatedEvent evt, string changedBy, CancellationToken ct = default);
+}
+
 /// <summary>A WhatsApp template for zeronova-social to send from the company's line (D33's one-click message).</summary>
 public interface IWhatsAppTemplateProducer : IMessageProducer
 {

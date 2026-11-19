@@ -17,11 +17,16 @@ public static class Topics
         public const string UpsertRequested = "contact-upsert-requested";
     }
 
-    /// <summary>zeronova-lead's: an enquiry to record on a lead (found or made) — here the share page's form and "Add enquiry" (D29).</summary>
+    /// <summary>
+    /// zeronova-lead's: an enquiry to record on a lead (found or made) — here the share page's form and "Add enquiry" (D29);
+    /// and <c>lead-captured-enquiry-updated</c>, the enquiry worked here (status, close, a requirement or visit linked), so
+    /// its lead hears of it.
+    /// </summary>
     public static class LeadCaptured
     {
         public const string Topic = "lead-captured";
         public const string Enquiry = "lead-captured-enquiry";
+        public const string EnquiryUpdated = "lead-captured-enquiry-updated";
     }
 
     /// <summary>zeronova-lead's lead events; this service reads <c>lead-enquiry-received</c> (D28).</summary>
@@ -94,6 +99,19 @@ public sealed record LeadCapturedEnquiryEvent(
     string CompanyId, string LeadSource, string Channel, string? Name, string? Phone, string? Email, string? Message,
     IReadOnlyDictionary<string, string> Metadata, string? SourceUrl, string ExternalRef, DateTimeOffset CapturedAt, string? AssignTo, string? AssignToName,
     string? LeadId);
+
+/// <summary>
+/// zeronova-lead's <c>LeadEnquiryUpdatedNotification</c> (<c>lead-captured-enquiry-updated</c>); field names are the contract.
+/// Statuses and reasons are this service's enum names (<see cref="Enquiries.EnquiryStatus"/>, <see cref="Enquiries.EnquiryCloseReason"/>).
+/// zeronova-lead puts each change on the lead's timeline (a close note or what was wanted also as a note) and moves the
+/// lead forward where the meaning is plain: contacted → Contacted, a requirement or visit → Interested, closed as not
+/// interested → Lost — the last only when <see cref="CustomerStillActive"/> is false (D31: an enquiry is one listing,
+/// the lead is the customer). <see cref="UpdateId"/> is the dedup key of the change.
+/// </summary>
+public sealed record LeadEnquiryUpdatedEvent(
+    string CompanyId, string LeadId, string? ContactId, string EnquiryId, string EnquiryCode, string EnquiryRef, string? Subject,
+    string PreviousStatus, string Status, string? CloseReason, string? CloseNote, string? Wanted, string? RequirementId, string? VisitId,
+    string? AgentId, string? AgentName, bool CustomerStillActive, string? UpdatedBy, DateTimeOffset UpdatedAt, string UpdateId);
 
 /// <summary>zeronova-lead's <c>LeadSource</c> names this service sends.</summary>
 public static class LeadSources
