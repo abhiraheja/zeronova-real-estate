@@ -51,6 +51,8 @@ public static class ApplicationInstaller
         services.AddScoped<Features.Projects.ScheduledPriceListStep>();
         // Enquiries (C1): counts on properties, projects and unit types.
         services.AddScoped<Features.Enquiries.EnquiryCounts>();
+        // An enquiry worked here reaches its lead in zeronova-lead (timeline, notes, status where plain).
+        services.AddScoped<Features.Enquiries.EnquiryLeadSync>();
         // Customers (C2): the Customers list's summaries, kept on every write of a customer's rows, and the contact links.
         services.AddScoped<Features.Customers.CustomerBook>();
         // Watched demand (C3): enquiries closed as not available become watched requirements; the watch sweep.

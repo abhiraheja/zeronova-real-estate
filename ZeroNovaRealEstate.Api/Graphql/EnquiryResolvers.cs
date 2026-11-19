@@ -52,7 +52,7 @@ public sealed class EnquiryMutation(IMediator mediator) : MutationBase
     [GraphQLName("ZeroNova_addEstateEnquiry")]
     public Task<EnquiryAckDto> AddEnquiry(AddEnquiryInput input, CancellationToken ct) => mediator.Send(new AddEnquiryCommand(input), ct);
 
-    /// <summary>Status, close with a reason, link a requirement or visit. Never touches the lead.</summary>
+    /// <summary>Status, close with a reason, link a requirement or visit. The lead hears of it; a close never closes a customer with something still open (D31).</summary>
     [RequirePermission(P.RequirementManage)]
     [GraphQLName("ZeroNova_updateEstateEnquiry")]
     public Task<EnquiryDto> UpdateEnquiry(string enquiryId, UpdateEnquiryInput input, CancellationToken ct) =>

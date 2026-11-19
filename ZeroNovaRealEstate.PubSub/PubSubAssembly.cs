@@ -35,6 +35,14 @@ public sealed class LeadCaptureProducer(ProducerServices services, ILogger<LeadC
         ProduceAsync(Topics.LeadCaptured.Enquiry, evt, changedBy, cancellationToken: ct);
 }
 
+/// <summary>An enquiry worked here, to zeronova-lead's <c>lead-captured</c> topic, through the outbox: its lead hears of it.</summary>
+public sealed class LeadEnquiryUpdateProducer(ProducerServices services, ILogger<LeadEnquiryUpdateProducer> logger)
+    : PubSubProducer<LeadEnquiryUpdateProducer>(Topics.LeadCaptured.Topic, services, logger), ILeadEnquiryUpdateProducer
+{
+    public Task PublishAsync(LeadEnquiryUpdatedEvent evt, string changedBy, CancellationToken ct = default) =>
+        ProduceAsync(Topics.LeadCaptured.EnquiryUpdated, evt, changedBy, cancellationToken: ct);
+}
+
 /// <summary>A WhatsApp template to a customer (D33), to zeronova-social's <c>whatsapp-sends</c>, through the outbox.</summary>
 public sealed class WhatsAppTemplateProducer(ProducerServices services, ILogger<WhatsAppTemplateProducer> logger)
     : PubSubProducer<WhatsAppTemplateProducer>(Topics.WhatsAppSends.Topic, services, logger), IWhatsAppTemplateProducer
