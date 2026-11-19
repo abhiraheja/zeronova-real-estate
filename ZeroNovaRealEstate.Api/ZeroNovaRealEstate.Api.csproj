@@ -10,12 +10,15 @@
     <PackageReference Include="Google.Cloud.SecretManager.V1" Version="2.8.0" />
     <!-- Referenced directly (not only transitively) so its implicit global usings reach this project. -->
     <PackageReference Include="HotChocolate.AspNetCore" Version="16.2.2" />
+    <PackageReference Include="HotChocolate.Diagnostics" Version="16.2.2" />
     <PackageReference Include="HotChocolate.AspNetCore.Authorization" Version="16.2.2" />
   </ItemGroup>
 
   <ItemGroup>
     <!-- Api references ONLY Infrastructure; everything below flows transitively. -->
     <ProjectReference Include="../ZeroNovaRealEstate.Infrastructure/ZeroNovaRealEstate.Infrastructure.csproj" />
+    <!-- Logs and traces (T00b): zeronova-k8s docs/observability.md. -->
+    <ProjectReference Include="../../ZeroNovaPackages/ZeroNova-Packages.Observability/ZeroNova-Packages.Observability.csproj" />
   </ItemGroup>
 
 </Project>

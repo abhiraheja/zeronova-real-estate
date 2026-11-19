@@ -23,6 +23,12 @@ public static class GraphqlInstaller
 
         var builder = services
             .AddGraphQLServer()
+            // Spans per request and operation (T00b); recorded only when tracing is on. No per-field spans.
+            .AddInstrumentation(o =>
+            {
+                o.EnableResolveFieldValue = false;
+                o.IncludeDataLoaderKeys = false;
+            })
             .AddAuthorization()
             .AddQueryType(d => d.Name(nameof(Query)))
             .ModifyRequestOptions(o =>

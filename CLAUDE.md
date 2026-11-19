@@ -39,7 +39,9 @@ ZeroNovaRealEstate.Tests/          xUnit + Mongo2Go, the real handlers
 - **Videos live in zeronova-media** (client `real-estate`, D36): never store or return a playable URL; a grant is asked
   per play. A missing `Media:ClientKey` keeps the service up and refuses only the video operations.
 - Money and sizes are `Decimal128` in Mongo (range queries). Sizes keep their unit and a sq ft value.
-- Logging/OTel, rate limiting, Docker/CI deploy are the owner's (T00b). Don't add them ad hoc.
+- Logs and traces (T00b): `builder.AddZeroNovaObservability()` from `ZeroNova_Packages.Observability` — JSON logs for
+  Cloud Logging, redacted; OTel traces when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (zeronova-k8s `docs/observability.md`).
+  Log ids, never a phone, email, token, OTP or body. Rate limiting and CI/CD stay with the owner.
 - Reply to the owner in Hinglish; write code, docs and commit messages in English.
 
 ## Run locally
