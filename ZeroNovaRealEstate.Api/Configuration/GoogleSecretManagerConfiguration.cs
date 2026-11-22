@@ -48,6 +48,24 @@ public sealed class GoogleSecretManagerConfigurationProvider(GoogleSecretManager
                 data[id[(cut + Separator.Length)..].Replace(Separator, ConfigurationPath.KeyDelimiter)] = sharedValue;
             }
 
+            // Optional shared secrets (Core's usage key): missing, or not granted to this service in this environment →
+            // the setting stays empty and only that feature is off. Never a reason not to start.
+            foreach (var id in options.OptionalSharedSecrets)
+            {
+                var cut = id.IndexOf(Separator, StringComparison.Ordinal);
+                if (cut <= 0)
+                    throw new InvalidOperationException($"Shared secret '{id}' must look like '<prefix>--<Section>--<Key>'.");
+                try
+                {
+                    if (Access(client, id) is { } optionalValue)
+                        data[id[(cut + Separator.Length)..].Replace(Separator, ConfigurationPath.KeyDelimiter)] = optionalValue;
+                }
+                catch (RpcException ex) when (ex.StatusCode is StatusCode.PermissionDenied)
+                {
+                    Console.Error.WriteLine($"Secret Manager: '{id}' is not readable by this service; its setting stays empty.");
+                }
+            }
+
             foreach (var secret in client.ListSecrets(new ProjectName(options.ProjectId)))
             {
                 var id = secret.SecretName.SecretId;

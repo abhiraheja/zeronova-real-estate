@@ -27,6 +27,8 @@ public static class ApplicationInstaller
 
         // What the caller may see (D14, D15), and properties as members see them.
         services.AddScoped<Features.Common.EstateScope>();
+        // Core's usage door (/internal/usage): counts only, asked with nobody signed in.
+        services.AddScoped<Features.Usage.IEstateUsageSource, Features.Usage.EstateUsageService>();
         services.AddScoped<Features.Parties.PartyContacts>();
         services.AddScoped<Features.Properties.PropertyMapper>();
         // Matching (M1): one place scores a property against a requirement and keeps the matches current.
