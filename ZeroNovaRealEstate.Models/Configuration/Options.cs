@@ -19,6 +19,24 @@ public sealed class GoogleSecretManagerOptions
     /// config <c>Mongo:ConnectionString</c>. The Mongo connection is Core's: one value, one place.
     /// </summary>
     public List<string> SharedSecrets { get; set; } = [];
+
+    /// <summary>
+    /// Shared secrets of features that may not be set up in an environment yet — Core's usage key. Missing, empty or not
+    /// readable by this service → the setting stays empty and that feature is off; the service still starts.
+    /// </summary>
+    public List<string> OptionalSharedSecrets { get; set; } = [];
+}
+
+/// <summary>
+/// Config section <c>"Usage"</c> — Core's usage door, <c>GET /internal/usage</c> (zeronova-portal docs/company-insights.md):
+/// the key Core sends in <c>X-Usage-Key</c>, Core's secret <c>zeronovacore--Usage--ServiceKey</c> read through
+/// <see cref="GoogleSecretManagerOptions.OptionalSharedSecrets"/>. Empty = the route is off (404).
+/// </summary>
+public sealed class UsageOptions
+{
+    public const string SectionName = "Usage";
+
+    public string ServiceKey { get; set; } = string.Empty;
 }
 
 /// <summary>
