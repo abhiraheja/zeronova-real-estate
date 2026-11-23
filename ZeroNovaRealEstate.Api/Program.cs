@@ -1,4 +1,5 @@
 using ZeroNova_Packages.Observability;
+using ZeroNovaRealEstate.Api.Endpoints;
 using ZeroNovaRealEstate.Api.Installers;
 using ZeroNovaRealEstate.Application;
 using ZeroNovaRealEstate.Infrastructure;
@@ -17,6 +18,7 @@ builder.Services.AddApplication();
 builder.Services.AddSupabaseAuthentication(builder.Configuration);
 builder.Services.AddGraphqlApi(builder.Environment, builder.Configuration);
 builder.Services.AddHealthChecks();
+builder.Services.AddUsageEndpoint(builder.Configuration);
 
 var app = builder.Build();
 
@@ -25,6 +27,7 @@ app.UseAuthorization();
 
 app.MapGet("/", () => "zeronova-real-estate").AllowAnonymous();
 app.MapHealthChecks("/health").AllowAnonymous();
+app.MapUsageEndpoints();   // GET /internal/usage — Core's company insights and Usage page, gated by the usage key
 
 app.MapGraphQL();
 

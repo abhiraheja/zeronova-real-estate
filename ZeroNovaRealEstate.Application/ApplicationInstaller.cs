@@ -27,6 +27,8 @@ public static class ApplicationInstaller
 
         // What the caller may see (D14, D15), and properties as members see them.
         services.AddScoped<Features.Common.EstateScope>();
+        // Core's usage door (/internal/usage): counts only, asked with nobody signed in.
+        services.AddScoped<Features.Usage.IEstateUsageSource, Features.Usage.EstateUsageService>();
         services.AddScoped<Features.Parties.PartyContacts>();
         services.AddScoped<Features.Properties.PropertyMapper>();
         // Matching (M1): one place scores a property against a requirement and keeps the matches current.
@@ -51,6 +53,8 @@ public static class ApplicationInstaller
         services.AddScoped<Features.Projects.ScheduledPriceListStep>();
         // Enquiries (C1): counts on properties, projects and unit types.
         services.AddScoped<Features.Enquiries.EnquiryCounts>();
+        // An enquiry worked here reaches its lead in zeronova-lead (timeline, notes, status where plain).
+        services.AddScoped<Features.Enquiries.EnquiryLeadSync>();
         // Customers (C2): the Customers list's summaries, kept on every write of a customer's rows, and the contact links.
         services.AddScoped<Features.Customers.CustomerBook>();
         // Watched demand (C3): enquiries closed as not available become watched requirements; the watch sweep.

@@ -323,7 +323,7 @@ public sealed class EnquiryTests(MongoFixture mongo) : IAsyncLifetime
         }));
         Assert.Equal((EnquiryStatus.Closed, EnquiryCloseReason.NotAvailable, "3 BHK in Sector 70 under 90 lakh"), (closed.Status, closed.CloseReason, closed.Wanted));
         Assert.NotNull(closed.ClosedAt);
-        Assert.Empty(host.Captures.Sent);   // closing never touches the lead
+        Assert.Empty(host.Captures.Sent);   // closing captures nothing new (the lead hears of it as an update, below)
         Assert.Empty(host.Contacts.Sent);
 
         var reopened = await host.SendAs(CompanyA, new UpdateEnquiryCommand(e.Id, new UpdateEnquiryInput { Status = EnquiryStatus.New }));
@@ -356,6 +356,65 @@ public sealed class EnquiryTests(MongoFixture mongo) : IAsyncLifetime
         var linked = await host.SendAs(CompanyA, new UpdateEnquiryCommand(second.Id, new UpdateEnquiryInput { RequirementId = requirement.Id }));
         Assert.Equal((EnquiryStatus.Closed, requirement.Id), (linked.Status, linked.RequirementId));
         await Assert.ThrowsAsync<ValidatorException>(() => host.SendAs(CompanyA, new UpdateEnquiryCommand(second.Id, new UpdateEnquiryInput { CloseReason = EnquiryCloseReason.Spam })));
+    }
+
+    [Fact]
+    public async Task Working_an_enquiry_tells_its_lead_and_a_close_says_whether_the_customer_still_has_something_open()
+    {
+        await host.PublishAsync(Received("u-1", new() { ["propertyId"] = flat.Id }, assignedTo: "user-test"));
+        await host.PublishAsync(Received("u-2", new() { ["propertyId"] = flat.Id }, assignedTo: "user-test"));
+        var first = (await All()).Single(x => x.Ref == "u-1");
+        var second = (await All()).Single(x => x.Ref == "u-2");
+        LeadEnquiryUpdatedEvent Last() => host.EnquiryUpdates.Sent.Last().Event;
+
+        await host.SendAs(CompanyA, new UpdateEnquiryCommand(first.Id, new UpdateEnquiryInput { Status = EnquiryStatus.Contacted }));
+        var (contacted, by) = Assert.Single(host.EnquiryUpdates.Sent);
+        Assert.Equal(("lead-1", first.Id, first.Code, "u-1", "New", "Contacted"),
+            (contacted.LeadId, contacted.EnquiryId, contacted.EnquiryCode, contacted.EnquiryRef, contacted.PreviousStatus, contacted.Status));
+        Assert.Equal((CompanyA, "user-test", "user-test", false), (contacted.CompanyId, contacted.UpdatedBy, by, contacted.CustomerStillActive));
+        Assert.StartsWith(flat.Code, contacted.Subject);
+        Assert.False(string.IsNullOrEmpty(contacted.UpdateId));
+
+        // The same status again: nothing new to tell.
+        await host.SendAs(CompanyA, new UpdateEnquiryCommand(first.Id, new UpdateEnquiryInput { Status = EnquiryStatus.Contacted }));
+        Assert.Single(host.EnquiryUpdates.Sent);
+
+        // Not interested while the customer's other enquiry is open: the lead must stay open.
+        await host.SendAs(CompanyA, new UpdateEnquiryCommand(first.Id, new UpdateEnquiryInput
+        {
+            Status = EnquiryStatus.Closed, CloseReason = EnquiryCloseReason.NotInterested, CloseNote = "Did not like the floor",
+        }));
+        Assert.Equal(("Contacted", "Closed", "NotInterested", "Did not like the floor", true),
+            (Last().PreviousStatus, Last().Status, Last().CloseReason, Last().CloseNote, Last().CustomerStillActive));
+
+        // The last open one closed as not interested, nothing else here: the customer is free to be lost.
+        await host.SendAs(CompanyA, new UpdateEnquiryCommand(second.Id, new UpdateEnquiryInput { Status = EnquiryStatus.Closed, CloseReason = EnquiryCloseReason.NotInterested }));
+        Assert.Equal((second.Id, false), (Last().EnquiryId, Last().CustomerStillActive));
+        // A closed enquiry's note changed: told again.
+        await host.SendAs(CompanyA, new UpdateEnquiryCommand(second.Id, new UpdateEnquiryInput
+        {
+            Status = EnquiryStatus.Closed, CloseReason = EnquiryCloseReason.NotInterested, CloseNote = "Bought elsewhere",
+        }));
+        Assert.Equal(("Closed", "Bought elsewhere", 4), (Last().PreviousStatus, Last().CloseNote, host.EnquiryUpdates.Sent.Count));
+
+        // A requirement made from a new enquiry moves it (and the lead) on; a live requirement keeps the customer active.
+        await host.PublishAsync(Received("u-3", new() { ["propertyId"] = flat.Id }, assignedTo: "user-test"));
+        var third = (await All()).Single(x => x.Ref == "u-3");
+        var requirement = await host.SendAs(CompanyA, new SaveRequirementCommand(null, new RequirementInput
+        {
+            LeadId = "lead-1", LeadName = "Rahul", Purpose = PropertyPurpose.Sale, Types = [PropertyType.Flat], EnquiryId = third.Id,
+        }));
+        Assert.Equal(("New", "RequirementAdded", requirement.Id), (Last().PreviousStatus, Last().Status, Last().RequirementId));
+        await host.SendAs(CompanyA, new ScheduleVisitCommand(new VisitInput
+        {
+            PropertyId = flat.Id, RequirementId = requirement.Id, LeadId = "lead-1", At = DateTimeOffset.UtcNow.AddDays(1), EnquiryId = third.Id,
+        }));
+        Assert.Equal(("RequirementAdded", "VisitBooked"), (Last().PreviousStatus, Last().Status));
+        await host.SendAs(CompanyA, new UpdateEnquiryCommand(third.Id, new UpdateEnquiryInput { Status = EnquiryStatus.Closed, CloseReason = EnquiryCloseReason.NotInterested }));
+        Assert.True(Last().CustomerStillActive);   // the requirement is still active
+        Assert.Equal(7, host.EnquiryUpdates.Sent.Count);
+        Assert.All(host.EnquiryUpdates.Sent, s => Assert.Equal("lead-1", s.Event.LeadId));
+        Assert.Equal(7, host.EnquiryUpdates.Sent.Select(s => s.Event.UpdateId).Distinct().Count());
     }
 
     // ── Scope (D39) ───────────────────────────────────────────────────────────────────────────────────

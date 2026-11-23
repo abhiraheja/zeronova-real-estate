@@ -32,7 +32,8 @@ public sealed class SaveRequirementValidator : AbstractValidator<SaveRequirement
 
 public sealed class SaveRequirementHandler(
     IRequirementRepository requirements, IEstateSettingsRepository settings, ILocalityRepository localities, IMatchRepository matches,
-    MatchEngine engine, EstateScope scope, IEnquiryRepository enquiries, TimeProvider clock, Customers.CustomerBook customers)
+    MatchEngine engine, EstateScope scope, IEnquiryRepository enquiries, TimeProvider clock, Customers.CustomerBook customers,
+    Enquiries.EnquiryLeadSync leadSync)
     : IRequestHandler<SaveRequirementCommand, RequirementDto>
 {
     public async Task<RequirementDto> Handle(SaveRequirementCommand request, CancellationToken ct)
@@ -92,8 +93,10 @@ public sealed class SaveRequirementHandler(
 
         if (enquiry is not null)
         {
+            var before = Enquiries.EnquiryLeadSync.Before.Of(enquiry);
             Enquiries.EnquiryLinks.ToRequirement(enquiry, requirement.Id, clock.GetUtcNow().UtcDateTime);
             await enquiries.UpdateAsync(enquiry, ct);
+            await leadSync.ChangedAsync(enquiry, before, scope.UserIdOrNull, ct);
         }
 
         await engine.ForRequirementAsync(requirement, ct);

@@ -169,7 +169,9 @@ public sealed class AddEnquiryHandler(IPropertyRepository properties, IProjectRe
 
 /// <summary>
 /// A status change, a close with its reason (not available keeps what was wanted and watches it as a requirement of the
-/// lead, D33 — linked as the enquiry's requirement), a requirement or visit linked, or (a manager) another agent. Closing never touches the lead: it keeps its own status in zeronova-lead.
+/// lead, D33 — linked as the enquiry's requirement), a requirement or visit linked, or (a manager) another agent. The lead
+/// hears of a status change or a close (<see cref="EnquiryLeadSync"/>): it goes on its timeline, and zeronova-lead moves
+/// it forward where the meaning is plain — but a close never closes a customer who still has something open here (D31).
 /// </summary>
 public sealed record UpdateEnquiryCommand(string EnquiryId, UpdateEnquiryInput Input) : IRequest<EnquiryDto>;
 
@@ -183,7 +185,7 @@ public sealed class UpdateEnquiryValidator : AbstractValidator<UpdateEnquiryComm
 }
 
 public sealed class UpdateEnquiryHandler(IEnquiryRepository enquiries, IRequirementRepository requirements, IVisitRepository visits, EstateScope scope, TimeProvider clock,
-    Customers.CustomerBook customers, Requirements.WatchedDemand watched)
+    Customers.CustomerBook customers, Requirements.WatchedDemand watched, EnquiryLeadSync leadSync)
     : IRequestHandler<UpdateEnquiryCommand, EnquiryDto>
 {
     public async Task<EnquiryDto> Handle(UpdateEnquiryCommand request, CancellationToken ct)
@@ -191,6 +193,7 @@ public sealed class UpdateEnquiryHandler(IEnquiryRepository enquiries, IRequirem
         var e = await EnquiryLookup.RequireAsync(enquiries, scope, request.EnquiryId, ct);
         var input = request.Input;
         var now = clock.GetUtcNow().UtcDateTime;
+        var before = EnquiryLeadSync.Before.Of(e);
 
         if (EstateText.Clean(input.AgentId) is { } agent && agent != e.AgentId)
         {
@@ -256,6 +259,7 @@ public sealed class UpdateEnquiryHandler(IEnquiryRepository enquiries, IRequirem
         e.UpdatedAt = now;
         await enquiries.UpdateAsync(e, ct);
         await customers.TouchAsync(e.ContactId, [e.LeadId], ct);
+        await leadSync.ChangedAsync(e, before, scope.UserId, ct);
         return EnquiryMapping.ToDto(e);
     }
 }

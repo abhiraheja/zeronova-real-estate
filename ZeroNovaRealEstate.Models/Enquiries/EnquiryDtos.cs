@@ -13,7 +13,7 @@ public enum EnquirySource
     Other,
 }
 
-/// <summary>new → contacted → requirement added / visit booked → closed (D27, D31). Closing never touches the lead.</summary>
+/// <summary>new → contacted → requirement added / visit booked → closed (D27, D31). Each move reaches the lead (<c>lead-captured-enquiry-updated</c>).</summary>
 public enum EnquiryStatus
 {
     New,
