@@ -1,3 +1,4 @@
+using ZeroNova_Packages.Observability;
 using ZeroNovaRealEstate.Api.Endpoints;
 using ZeroNovaRealEstate.Api.Installers;
 using ZeroNovaRealEstate.Application;
@@ -8,7 +9,9 @@ var builder = WebApplication.CreateBuilder(args);
 // Secrets first, so every installer below sees them. One GCP project per environment.
 builder.AddGoogleSecretManager();
 
-// Structured logging, rate limiting and CI/CD are topic T00b (user-owned) — not wired here yet, same as Core.
+// Logs and traces (T00b): JSON logs for Cloud Logging, OTel traces when OTEL_EXPORTER_OTLP_ENDPOINT is set.
+// Plan: zeronova-k8s docs/observability.md. Rate limiting and CI/CD stay with the owner.
+builder.AddZeroNovaObservability();
 
 builder.Services.AddInfrastructureServices(builder.Configuration);
 builder.Services.AddApplication();
