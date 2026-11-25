@@ -35,6 +35,9 @@ public sealed class EstateVideoDocument : CompanyDocumentBase
     [BsonElement("slot")] [BsonIgnoreIfNull] public int? Slot { get; set; }
     [BsonElement("addedAt")] public DateTime AddedAt { get; set; }
     [BsonElement("fileName")] public string? FileName { get; set; }
+
+    /// <summary>Who started the upload (<c>zn_uid</c>): told when the video fails. Rows from before have none.</summary>
+    [BsonElement("uploadedBy")] [BsonIgnoreIfNull] public string? UploadedBy { get; set; }
     [BsonElement("sizeBytes")] public long SizeBytes { get; set; }
 
     /// <summary>When the last media event applied happened (its <c>At</c>): an older event, delivered late, is not applied.</summary>

@@ -273,11 +273,10 @@ public sealed class VisitReminders(IVisitRepository visits, IPropertyRepository 
                 : visit.ProjectId is { } projectId ? (await projects.GetDocument(projectId, true, visit.CompanyId).FirstOrDefaultAsync(ct))?.Name : null;
             try
             {
-                await bell.PublishAsync(new DispatchEventMessage(Guid.NewGuid().ToString(), "ESTATE_VISIT_SOON", visit.CompanyId, string.Empty,
-                    new { visitId = visit.Id }, new DispatchDelivery(false, true, "IfOffline"),
-                    new DispatchMeta("high", "zeronova-real-estate", visit.Id, now),
-                    new DispatchNotification(visit.CompanyId, [visit.AgentId], $"Site visit at {Drafts.Time(visit.At)}: {visit.LeadName ?? "customer"}",
-                        what, "/real-estate/visits", "calendar-event")), ct);
+                // NORMAL, said outright: Meta "high" alone would make the hub treat a reminder as URGENT (past quiet hours).
+                await bell.PublishAsync(EstateBells.Build(BellTypes.VisitSoon, visit.CompanyId, BellRecipients.User(visit.AgentId),
+                    $"Site visit at {Drafts.Time(visit.At)}: {visit.LeadName ?? "customer"}", what, "/real-estate/visits", "calendar-event", visit.Id, now,
+                    data: new { visitId = visit.Id, url = "/real-estate/visits" }, metaPriority: "high"), ct);
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {

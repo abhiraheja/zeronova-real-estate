@@ -223,6 +223,8 @@ public sealed class WatchedDemandTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Equal(("ESTATE_REVIVED_MATCH", "Rahul Verma asked for this earlier — now available", $"{flat.Code}: {flat.Title}"),
             (bell.Type, bell.Notification.Title, bell.Notification.Body));
         Assert.Equal($"/real-estate/requirements/{watched.Id}", bell.Notification.Url);
+        Assert.Equal(($"/real-estate/requirements/{watched.Id}", "REAL_ESTATE", $"estate-revived:{watched.Id}"),
+            (bell.Notification.Link, bell.Notification.Category, bell.Notification.GroupKey));
         Assert.Contains("contact-1", await Highlighted());
         Assert.True((await host.SendAs(CompanyA, new GetCustomerQuery("contact-1", null))).Highlighted);
 
@@ -351,6 +353,8 @@ public sealed class WatchedDemandTests(MongoFixture mongo) : IAsyncLifetime
         Assert.Equal(("template_not_approved", MatchStatus.Shown), (failed.MessageFailed, failed.Status));
         var bell = Assert.Single(host.Bells.Sent);
         Assert.Equal(("ESTATE_MESSAGE_FAILED", "WhatsApp to Rahul Verma was not sent"), (bell.Type, bell.Notification.Title));
+        Assert.Equal(($"/real-estate/requirements/{watched.Id}", "ALERTS", "NORMAL", $"estate-message-failed:{watched.Id}"),
+            (bell.Notification.Link, bell.Notification.Category, bell.Notification.Priority, bell.Notification.GroupKey));
     }
 
     [Fact]

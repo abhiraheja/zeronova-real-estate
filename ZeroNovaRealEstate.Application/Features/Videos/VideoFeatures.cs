@@ -10,6 +10,7 @@ using ZeroNovaRealEstate.Application.Interfaces;
 using ZeroNovaRealEstate.Domain.Documents;
 using ZeroNovaRealEstate.Models.Configuration;
 using ZeroNovaRealEstate.Models.Constants;
+using ZeroNovaRealEstate.Models.Events;
 using ZeroNovaRealEstate.Models.Videos;
 
 namespace ZeroNovaRealEstate.Application.Features.Videos;
@@ -22,7 +23,8 @@ namespace ZeroNovaRealEstate.Application.Features.Videos;
 /// The videos of listings: reading them, keeping them in step with zeronova-media (the status poll, the events),
 /// removing them, and playback grants.
 /// </summary>
-public sealed class EstateVideoBook(IEstateVideoRepository videos, IMediaClient media, MediaOptions options, ILogger<EstateVideoBook> logger)
+public sealed class EstateVideoBook(IEstateVideoRepository videos, IMediaClient media, MediaOptions options, IAgentNotificationProducer bell, TimeProvider clock,
+    ILogger<EstateVideoBook> logger)
 {
     public void RequireMedia()
     {
@@ -72,9 +74,10 @@ public sealed class EstateVideoBook(IEstateVideoRepository videos, IMediaClient 
 
     /// <summary>
     /// Asks zeronova-media about the rows still uploading or processing and writes what changed. A failure is logged and
-    /// the rows stay as they were (the events, or the next poll, put them right).
+    /// the rows stay as they were (the events, or the next poll, put them right). A row that turns Failed rings its
+    /// uploader — unless <paramref name="seenBy"/> (the member whose screen asked) is the uploader.
     /// </summary>
-    public async Task RefreshAsync(IReadOnlyList<EstateVideoDocument> rows, string company, CancellationToken ct)
+    public async Task RefreshAsync(IReadOnlyList<EstateVideoDocument> rows, string company, CancellationToken ct, string? seenBy = null)
     {
         var pending = rows.Where(v => v.Status is EstateVideoStatus.Uploading or EstateVideoStatus.Processing).ToList();
         if (pending.Count == 0 || !media.IsConfigured)
@@ -92,6 +95,7 @@ public sealed class EstateVideoBook(IEstateVideoRepository videos, IMediaClient 
         var byId = found.GroupBy(v => v.Id).ToDictionary(g => g.Key, g => g.First());
         foreach (var row in pending)
         {
+            var before = row.Status;
             if (!Apply(row, byId.GetValueOrDefault(row.VideoId)))
                 continue;
             try
@@ -100,9 +104,11 @@ public sealed class EstateVideoBook(IEstateVideoRepository videos, IMediaClient 
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                // Changed at the same moment (an event): the next read shows it.
+                // Changed at the same moment (an event): the next read shows it (and the event rings, if it failed it).
                 logger.LogInformation(ex, "Video {VideoId} not refreshed.", row.VideoId);
+                continue;
             }
+            await TellIfFailedAsync(row, before, company, seenBy, ct);
         }
     }
 
@@ -125,6 +131,33 @@ public sealed class EstateVideoBook(IEstateVideoRepository videos, IMediaClient 
             default:
                 // Deleted there, or never seen: an upload left idle for a day is dropped by zeronova-media.
                 return MarkFailed(row, "The upload did not finish. Delete this video and upload it again.", null);
+        }
+    }
+
+    /// <summary>
+    /// ESTATE_VIDEO_FAILED (ALERTS), once — when the row has just turned Failed (<paramref name="before"/> was not): to the
+    /// uploader unless they are <paramref name="actor"/> (they see it on screen); a row with no uploader rings the holders
+    /// of the listing's manage permission (PPRM, a project's PPJM). The link opens the listing. A lost bell is logged.
+    /// </summary>
+    public async Task TellIfFailedAsync(EstateVideoDocument row, EstateVideoStatus before, string company, string? actor, CancellationToken ct)
+    {
+        if (row.Status != EstateVideoStatus.Failed || before == EstateVideoStatus.Failed)
+            return;
+        var project = row.ListingKind == EstateListingKind.Project;
+        var to = BellRecipients.OwnerElse(row.UploadedBy, actor, elseWhenActor: false,
+            project ? EstatePermissions.ProjectManage : EstatePermissions.PropertyManage);
+        if (to.IsEmpty)
+            return;
+        var link = project ? $"/real-estate/projects/{row.ListingId}" : $"/real-estate/properties/{row.ListingId}";
+        try
+        {
+            await bell.PublishAsync(EstateBells.Build(BellTypes.VideoFailed, company, to, $"Video \"{row.Title}\" could not be prepared", row.FailureReason,
+                link, "video", row.VideoId, clock.GetUtcNow(), BellCategories.Alerts,
+                data: new { videoId = row.VideoId, listingKind = row.ListingKind.ToString(), listingId = row.ListingId, url = link }), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Video-failed bell for video {VideoId} of company {CompanyId} not sent.", row.VideoId, company);
         }
     }
 
@@ -284,7 +317,7 @@ public sealed class StartEstateVideoUploadHandler(IEstateVideoRepository videos,
 
         var rows = (await book.OfAsync(request.ListingKind, [listingId], false, company, ct))[listingId].ToList();
         // An upload abandoned long ago turns Failed here, so the dealer sees why the slot is taken.
-        await book.RefreshAsync(rows, company, ct);
+        await book.RefreshAsync(rows, company, ct, scope.UserIdOrNull);
         if (rows.Count >= EstateVideoRules.MaxPerListing)
             throw new ValidatorException($"A {(request.ListingKind == EstateListingKind.Project ? "project" : "property")} takes at most {EstateVideoRules.MaxPerListing} videos. Delete one first.");
 
@@ -304,7 +337,7 @@ public sealed class StartEstateVideoUploadHandler(IEstateVideoRepository videos,
         {
             Id = videos.GetNewId, ListingKind = request.ListingKind, ListingId = listingId, VideoId = upload.VideoId, ExternalRef = externalRef, Title = title,
             Status = EstateVideoStatus.Uploading, SortOrder = rows.Count == 0 ? 0 : rows.Max(r => r.SortOrder) + 1, AddedAt = clock.GetUtcNow().UtcDateTime,
-            FileName = fileName, SizeBytes = request.SizeBytes, Slot = slot,
+            FileName = fileName, SizeBytes = request.SizeBytes, Slot = slot, UploadedBy = scope.UserIdOrNull,
         };
         try
         {
@@ -382,10 +415,12 @@ public sealed class CompleteEstateVideoUploadHandler(IEstateVideoRepository vide
         var company = caller.CompanyId!;
         var video = await EstateVideoBook.CallAsync(() => media.CompleteUploadAsync(company, row.VideoId,
             [.. request.Parts.OrderBy(p => p.Number).Select(p => (p.Number, p.Etag.Trim()))], ct));
+        var before = row.Status;
         EstateVideoBook.Apply(row, video);
         if (row.Status == EstateVideoStatus.Uploading)
             row.Status = EstateVideoStatus.Processing;
         await videos.UpdateAsync(row, ct, company);
+        await book.TellIfFailedAsync(row, before, company, scope.UserIdOrNull, ct);
         return EstateVideoBook.Dto(row);
     }
 }
@@ -496,7 +531,7 @@ public sealed class GetEstateVideoStatusValidator : AbstractValidator<GetEstateV
     public GetEstateVideoStatusValidator() => RuleFor(x => x.VideoIds).Must(ids => ids.Count <= 50).WithMessage("Ask for at most 50 videos at a time.");
 }
 
-public sealed class GetEstateVideoStatusHandler(IEstateVideoRepository videos, EstateVideoBook book, IRequestContext caller)
+public sealed class GetEstateVideoStatusHandler(IEstateVideoRepository videos, EstateVideoBook book, IRequestContext caller, EstateScope scope)
     : IRequestHandler<GetEstateVideoStatusQuery, IReadOnlyList<EstateVideoDto>>
 {
     public async Task<IReadOnlyList<EstateVideoDto>> Handle(GetEstateVideoStatusQuery request, CancellationToken ct)
@@ -505,7 +540,7 @@ public sealed class GetEstateVideoStatusHandler(IEstateVideoRepository videos, E
         if (ids.Count == 0)
             return [];
         var rows = await videos.GetDocuments(v => ids.Contains(v.VideoId)).ToListAsync(ct);
-        await book.RefreshAsync(rows, caller.CompanyId!, ct);
+        await book.RefreshAsync(rows, caller.CompanyId!, ct, scope.UserIdOrNull);
         return [.. rows.OrderBy(r => ids.IndexOf(r.VideoId)).Select(EstateVideoBook.Dto)];
     }
 }
@@ -626,7 +661,7 @@ public sealed class VideoFailedNotification : MediaVideoNotification;
 /// row's. Idempotent (the same state again changes nothing) and in order (an event older than the last applied is
 /// dropped). A row already removed is left alone.
 /// </summary>
-public sealed class MediaVideoEvents(IEstateVideoRepository videos, MediaOptions options, ILogger<MediaVideoEvents> logger)
+public sealed class MediaVideoEvents(IEstateVideoRepository videos, EstateVideoBook book, MediaOptions options, ILogger<MediaVideoEvents> logger)
 {
     public async Task ApplyAsync(MediaVideoNotification n, bool ready, CancellationToken ct)
     {
@@ -645,11 +680,14 @@ public sealed class MediaVideoEvents(IEstateVideoRepository videos, MediaOptions
         var at = n.At == default ? (DateTime?)null : n.At.UtcDateTime;
         if (at is not null && row.StatusAt is { } last && at < last)
             return;
+        var before = row.Status;
         var changed = ready ? EstateVideoBook.MarkReady(row, n.DurationSeconds, n.PosterUrl) : EstateVideoBook.MarkFailed(row, n.Reason, n.DurationSeconds);
         if (!changed)
             return;
         row.StatusAt = at ?? row.StatusAt;
         await videos.UpdateAsync(row, ct, company);
+        // zeronova-media failed it (or a ready video was too long): nobody here caused it.
+        await book.TellIfFailedAsync(row, before, company, null, ct);
     }
 }
 

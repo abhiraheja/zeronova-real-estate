@@ -195,5 +195,43 @@ public sealed record DispatchDelivery(bool Realtime, bool Persist, string Push);
 
 public sealed record DispatchMeta(string Priority, string ProducedBy, string? CorrelationId, DateTimeOffset ProducedAt);
 
+/// <summary>
+/// The bell itself (zeronova-utility's <c>NotificationPayload</c>, N2). The fields after <paramref name="Icon"/> are optional:
+/// <paramref name="Link"/> the admin-app route (the same as <paramref name="Url"/>), <paramref name="Category"/>
+/// (<see cref="BellCategories"/>), <paramref name="Priority"/> (<c>NORMAL</c> | <c>URGENT</c>), <paramref name="GroupKey"/>
+/// (the hub coalesces one person's unread bells of the same type and key within 30 minutes), <paramref name="Product"/>,
+/// <paramref name="Audience"/> (people by role, resolved by the hub; <paramref name="Recipients"/> may then be empty) and
+/// <paramref name="Realtime"/> (false = no toast; null = toast).
+/// </summary>
 public sealed record DispatchNotification(
-    string CompanyId, IReadOnlyList<string> Recipients, string Title, string? Body, string? Url, string? Icon);
+    string CompanyId, IReadOnlyList<string> Recipients, string Title, string? Body, string? Url, string? Icon,
+    string? Link = null, string? Category = null, string? Priority = null, string? GroupKey = null, string? Product = null,
+    DispatchAudience? Audience = null, bool? Realtime = null);
+
+/// <summary>zeronova-utility's <c>NotificationAudience</c>: holders of a permission code, the company's admins.</summary>
+public sealed record DispatchAudience(IReadOnlyList<string>? UserIds, IReadOnlyList<string>? PermissionCodes, bool CompanyAdmins = false);
+
+/// <summary>zeronova-utility's notification categories (the bell's filter chips) and priorities.</summary>
+public static class BellCategories
+{
+    public const string RealEstate = "REAL_ESTATE";
+    public const string Alerts = "ALERTS";
+
+    public const string Normal = "NORMAL";
+    public const string Urgent = "URGENT";
+}
+
+/// <summary>The bell types this service sends (zeronova-utility's <c>EventTypes</c>; an unknown type is refused).</summary>
+public static class BellTypes
+{
+    public const string NewMatches = "ESTATE_NEW_MATCHES";
+    public const string RevivedMatch = "ESTATE_REVIVED_MATCH";
+    public const string MessageFailed = "ESTATE_MESSAGE_FAILED";
+    public const string VisitSoon = "ESTATE_VISIT_SOON";
+    public const string RentDue = "ESTATE_RENT_DUE";
+    public const string TenancyEnding = "ESTATE_TENANCY_ENDING";
+    public const string PoliceVerification = "ESTATE_POLICE_VERIFICATION";
+    public const string RentAuthorityDue = "ESTATE_RENT_AUTHORITY_DUE";
+    public const string DealStageChanged = "ESTATE_DEAL_STAGE_CHANGED";
+    public const string VideoFailed = "ESTATE_VIDEO_FAILED";
+}
