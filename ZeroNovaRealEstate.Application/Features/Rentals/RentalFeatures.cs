@@ -503,25 +503,25 @@ public sealed class RentReminders(ITenancyRepository tenancies, IPropertyReposit
                 if (rentDue)
                 {
                     t.RemindedMonths.Add(today[..7]);
-                    rung += await RingAsync(t, "ESTATE_RENT_DUE", $"Rent due: {property?.Title ?? "a tenancy"}",
+                    rung += await RingAsync(t, BellTypes.RentDue, $"Rent due: {property?.Title ?? "a tenancy"}",
                         $"{EstateText.Rupees(t.Rent)} for {Tenancies.MonthName(today[..7])} is not in yet.", now, ct);
                 }
                 if (ending)
                 {
                     t.RenewalReminded = true;
-                    rung += await RingAsync(t, "ESTATE_TENANCY_ENDING", $"Tenancy ends {IndianWords.Date(t.EndDate)}",
+                    rung += await RingAsync(t, BellTypes.TenancyEnding, $"Tenancy ends {IndianWords.Date(t.EndDate)}",
                         $"{property?.Title ?? "A tenancy"} — renew it or find the next tenant.", now, ct);
                 }
                 if (police)
                 {
                     t.PoliceReminded = true;
-                    rung += await RingAsync(t, "ESTATE_POLICE_VERIFICATION", $"Police verification: {property?.Title ?? "a tenancy"}",
+                    rung += await RingAsync(t, BellTypes.PoliceVerification, $"Police verification: {property?.Title ?? "a tenancy"}",
                         "The tenant's police verification is not recorded. Get it done and note the reference.", now, ct);
                 }
                 if (authority)
                 {
                     t.RentAuthorityReminded = true;
-                    rung += await RingAsync(t, "ESTATE_RENT_AUTHORITY_DUE", $"Rent Authority intimation due {IndianWords.Date(Tenancies.RentAuthorityDue(t))}",
+                    rung += await RingAsync(t, BellTypes.RentAuthorityDue, $"Rent Authority intimation due {IndianWords.Date(Tenancies.RentAuthorityDue(t))}",
                         $"{property?.Title ?? "A tenancy"} in Chandigarh — tell the Rent Authority within 2 months of the agreement and note the UIN.", now, ct);
                 }
                 await tenancies.UpdateAsync(t, ct, t.CompanyId);
@@ -535,10 +535,9 @@ public sealed class RentReminders(ITenancyRepository tenancies, IPropertyReposit
     {
         try
         {
-            await bell.PublishAsync(new DispatchEventMessage(Guid.NewGuid().ToString(), kind, t.CompanyId, string.Empty,
-                new { tenancyId = t.Id }, new DispatchDelivery(false, true, "IfOffline"),
-                new DispatchMeta("normal", "zeronova-real-estate", $"{t.Id}:{kind}:{now:yyyyMM}", now),
-                new DispatchNotification(t.CompanyId, [t.AgentId], title, body, "/real-estate/rentals", "home")), ct);
+            // Once per tenancy per kind (per month for rent): the tenancy's flags keep the sweep from ringing it again.
+            await bell.PublishAsync(EstateBells.Build(kind, t.CompanyId, BellRecipients.User(t.AgentId), title, body, "/real-estate/rentals", "home",
+                $"{t.Id}:{kind}:{now:yyyyMM}", now, data: new { tenancyId = t.Id, url = "/real-estate/rentals" }), ct);
             return 1;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)

@@ -1,4 +1,5 @@
 using FluentValidation;
+using Microsoft.Extensions.Logging;
 using MongoDB.Driver.Linq;
 using ZeroNova_Packages.MediatR.Interfaces;
 using ZeroNovaRealEstate.Application.Exceptions;
@@ -6,6 +7,8 @@ using ZeroNovaRealEstate.Application.Features.Common;
 using ZeroNovaRealEstate.Application.Features.Matching;
 using ZeroNovaRealEstate.Application.Interfaces;
 using ZeroNovaRealEstate.Domain.Documents;
+using ZeroNovaRealEstate.Models.Constants;
+using ZeroNovaRealEstate.Models.Events;
 using ZeroNovaRealEstate.Models.Deals;
 using ZeroNovaRealEstate.Models.Parties;
 using ZeroNovaRealEstate.Models.Properties;
@@ -115,7 +118,8 @@ public sealed class SaveDealHandler(IDealRepository deals, IPropertyRepository p
 public sealed record SetDealStageCommand(string DealId, DealStageInput Input) : IRequest<DealDto>;
 
 public sealed class SetDealStageHandler(IDealRepository deals, IPropertyRepository properties, IPartyRepository parties, IRequirementRepository requirements,
-    MatchEngine engine, DealMapper mapper, EstateScope scope, TimeProvider clock, Parties.PartyContacts contacts, Customers.CustomerBook customers)
+    MatchEngine engine, DealMapper mapper, EstateScope scope, TimeProvider clock, Parties.PartyContacts contacts, Customers.CustomerBook customers,
+    IAgentNotificationProducer bell, ILogger<SetDealStageHandler> logger)
     : IRequestHandler<SetDealStageCommand, DealDto>
 {
     public async Task<DealDto> Handle(SetDealStageCommand request, CancellationToken ct)
@@ -123,6 +127,8 @@ public sealed class SetDealStageHandler(IDealRepository deals, IPropertyReposito
         var deal = await DealLookup.RequireAsync(deals, scope, request.DealId, ct);
         if (deal.Stage is DealStage.Completed or DealStage.Cancelled)
             throw new ValidatorException($"{deal.Code} is already {deal.Stage.ToString().ToLowerInvariant()}.");
+        var previous = deal.Stage;
+        var cancelledWithIt = new List<DealDocument>();
         var stage = request.Input.Stage;
         if (stage == DealStage.Cancelled)
             deal.CancelReason = EstateText.Clean(request.Input.Reason) ?? throw new ValidatorException("Say why the deal fell through.");
@@ -208,6 +214,7 @@ public sealed class SetDealStageHandler(IDealRepository deals, IPropertyReposito
                 other.CancelReason = $"{property.Code} went to {deal.Code}";
                 await deals.UpdateAsync(other, ct);
                 await customers.TouchDealAsync(other, ct);
+                cancelledWithIt.Add(other);
             }
 
             // The buyer's enquiry became a deal: owners of what they bought, and won in zeronova-lead.
@@ -220,7 +227,42 @@ public sealed class SetDealStageHandler(IDealRepository deals, IPropertyReposito
         deal.Stage = stage;
         await deals.UpdateAsync(deal, ct);
         await customers.TouchDealAsync(deal, ct);
+        if (stage != previous)
+        {
+            var listing = await properties.GetDocument(deal.PropertyId, true).Select(p => new { p.Code, p.Title }).FirstOrDefaultAsync(ct);
+            await TellAsync(deal, listing?.Code, listing?.Title, ct);
+            foreach (var other in cancelledWithIt)
+                await TellAsync(other, listing?.Code, listing?.Title, ct);
+        }
         return await mapper.OneAsync(deal, ct);
+    }
+
+    /// <summary>
+    /// ESTATE_DEAL_STAGE_CHANGED: the deal's agent hears of it, unless they moved it themselves — then the managers (PDLV,
+    /// who see every deal) do. A lost bell is logged, never a failed move.
+    /// </summary>
+    private async Task TellAsync(DealDocument deal, string? propertyCode, string? propertyTitle, CancellationToken ct)
+    {
+        var to = BellRecipients.OwnerElse(deal.AgentId, scope.UserIdOrNull, elseWhenActor: true, EstatePermissions.DealView);
+        var what = deal.Stage switch
+        {
+            DealStage.Completed => deal.Kind == PropertyPurpose.Rent ? "is done: rented" : "is done: sold",
+            DealStage.Cancelled => "fell through",
+            DealStage.Token => "has the token",
+            _ => $"moved to {deal.Stage}",
+        };
+        var on = propertyCode is null ? null : $"{propertyCode}: {propertyTitle}";
+        var body = deal.Stage == DealStage.Cancelled && deal.CancelReason is { } reason ? (on is null ? reason : $"{on} — {reason}") : on;
+        try
+        {
+            await bell.PublishAsync(EstateBells.Build(BellTypes.DealStageChanged, deal.CompanyId, to, $"Deal {deal.Code} {what}", body,
+                $"/real-estate/deals/{deal.Id}", "file-text", $"{deal.Id}:{deal.Stage}", clock.GetUtcNow(),
+                data: new { dealId = deal.Id, stage = deal.Stage.ToString(), url = $"/real-estate/deals/{deal.Id}" }), ct);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning(ex, "Deal stage bell for deal {DealId} not sent.", deal.Id);
+        }
     }
 }
 

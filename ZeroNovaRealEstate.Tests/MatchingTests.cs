@@ -100,6 +100,12 @@ public sealed class MatchingTests(MongoFixture mongo) : IAsyncLifetime
         var bell = Assert.Single(host.Bells.Sent);
         Assert.Equal(["user-test"], bell.Notification.Recipients);
         Assert.Equal("P-0001 fits Rahul", bell.Notification.Title);
+        // N2 fields: the property page, Real Estate, NORMAL, coalesced per property.
+        Assert.Equal(("ESTATE_NEW_MATCHES", $"/real-estate/properties/{plot.Id}", $"/real-estate/properties/{plot.Id}", "REAL_ESTATE", "NORMAL", "REAL_ESTATE"),
+            (bell.Type, bell.Notification.Link, bell.Notification.Url, bell.Notification.Category, bell.Notification.Priority, bell.Notification.Product));
+        Assert.Equal($"estate-matches:{plot.Id}", bell.Notification.GroupKey);
+        Assert.Null(bell.Notification.Audience);
+        Assert.Equal(CompanyA, bell.CompanyId);
     }
 
     [Fact]

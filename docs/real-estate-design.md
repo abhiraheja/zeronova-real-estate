@@ -317,3 +317,29 @@ counts by status are computed.
 - **Never shown:** owners and their contacts, unit numbers, block, a property's map pin, the owner's expectation, the
   source dealer, keys, mandate, papers, notes, the dealer's own fields, holds, CP terms, the builder's contact, plan
   notes. A project's address and map pin are shown, as on its share page.
+
+## 8. Staff notifications (N2 hub, notif-lead N3)
+
+Every staff bell goes as `dispatch-event` on Pub/Sub `communication-events` (zeronova-utility's hub, contract in
+zeronova-utility `docs/notifications.md`) through the outbox (`AgentNotificationProducer`), built by
+`EstateBells.Build`: always `CompanyId`, `Link` = `Url` (the admin app's route under `/real-estate`), `Category`,
+`Priority` `NORMAL` (none here is URGENT), `Product` `REAL_ESTATE`, a `GroupKey` where a bell is chatty. Recipients by id;
+when an item has nobody to name, `Audience.PermissionCodes` (the hub cannot leave the actor out of that fan-out). A lost
+bell is logged with ids only and never fails the save.
+
+| Type | When | To | Link | Category | GroupKey |
+|---|---|---|---|---|---|
+| `ESTATE_NEW_MATCHES` | a save makes new matches | the requirement's agent | `/real-estate/properties/{id}`, `/real-estate/requirements/{id}` or `/real-estate/projects/{id}` (what was saved) | REAL_ESTATE | `estate-matches:{that id}` |
+| `ESTATE_REVIVED_MATCH` | a new fit for a watched requirement (D33) | the requirement's agent | `/real-estate/requirements/{id}` | REAL_ESTATE | `estate-revived:{requirementId}` |
+| `ESTATE_MESSAGE_FAILED` | zeronova-social could not send the D33 WhatsApp | the match's agent | `/real-estate/requirements/{id}` | ALERTS | `estate-message-failed:{requirementId}` |
+| `ESTATE_VISIT_SOON` | a visit starts within the hour (once) | the visit's agent | `/real-estate/visits` | REAL_ESTATE | — |
+| `ESTATE_RENT_DUE`, `ESTATE_TENANCY_ENDING`, `ESTATE_POLICE_VERIFICATION`, `ESTATE_RENT_AUTHORITY_DUE` | the rent sweep (once per tenancy and kind; rent once a month) | the tenancy's agent | `/real-estate/rentals` | REAL_ESTATE | — |
+| `ESTATE_DEAL_STAGE_CHANGED` | a deal moves stage (also the offers a completed deal cancels) | the deal's agent; when the agent moved it, the managers (`PDLV`, who see every deal) | `/real-estate/deals/{id}` | REAL_ESTATE | — |
+| `ESTATE_VIDEO_FAILED` | a listing's video turns Failed (media's `video-failed`, a too-long ready, the status poll, completing the upload) — once | the uploader (`uploadedBy`), not when they are the one whose screen saw it; a row from before has none → `PPRM` (a project's video: `PPJM`) | `/real-estate/properties/{id}` or `/real-estate/projects/{id}` | ALERTS | — |
+
+`ESTATE_VISIT_SOON` keeps `Meta.Priority` `high` but says `NORMAL` on the bell (the hub reads a bare `high` as URGENT).
+
+**New enquiries ring in zeronova-lead, not here.** Every Real Estate enquiry reaches zeronova-lead — the share page
+and "Add enquiry" as `lead-captured-enquiry` on `lead-captured` (`LeadCapturedEnquiryEvent`, metadata `product`,
+`propertyId` / `projectId` / `unitTypeId`, `requirementId`, `agentId`), website forms straight from zeronova-cms — and
+zeronova-lead rings `ENQUIRY_RECEIVED` / `LEAD_CREATED` for each. This service sends no new-enquiry bell of its own.

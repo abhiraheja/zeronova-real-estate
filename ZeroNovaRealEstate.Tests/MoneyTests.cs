@@ -126,6 +126,8 @@ public sealed class MoneyTests(MongoFixture mongo) : IAsyncLifetime
         await host.RunAsJobAsync(async sp => Assert.Equal(2, await sp.GetRequiredService<RentReminders>().RunOnceAsync(CancellationToken.None)));
         await host.RunAsJobAsync(async sp => Assert.Equal(0, await sp.GetRequiredService<RentReminders>().RunOnceAsync(CancellationToken.None)));
         Assert.Equal(["ESTATE_POLICE_VERIFICATION", "ESTATE_RENT_DUE"], host.Bells.Sent.Select(b => b.Type).Order());
+        Assert.All(host.Bells.Sent, b => Assert.Equal(("/real-estate/rentals", "REAL_ESTATE", "NORMAL", "REAL_ESTATE"),
+            (b.Notification.Link, b.Notification.Category, b.Notification.Priority, b.Notification.Product)));
 
         var month = Today[..7];
         await Assert.ThrowsAsync<ValidatorException>(() => host.SendAs(CompanyA, new RecordRentPaymentCommand(tenancy.Id, new RentPaymentInput("2001-01", 25000m, PaymentMode.Upi, null, null))));

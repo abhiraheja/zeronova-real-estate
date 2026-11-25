@@ -189,12 +189,11 @@ public sealed class WhatsAppSendFailedHandler(IMatchRepository matches, IRequire
         };
         try
         {
-            await bell.PublishAsync(new DispatchEventMessage(
-                Guid.NewGuid().ToString(), "ESTATE_MESSAGE_FAILED", company, string.Empty, new { url = $"/real-estate/requirements/{match.RequirementId}" },
-                new DispatchDelivery(Realtime: false, Persist: true, Push: "IfOffline"),
-                new DispatchMeta("normal", "zeronova-real-estate", match.Id, clock.GetUtcNow()),
-                new DispatchNotification(company, [match.AgentId], $"WhatsApp to {requirement?.LeadName ?? "the customer"} was not sent",
-                    $"{char.ToUpperInvariant(why[0])}{why[1..]}. Send it from your phone.", $"/real-estate/requirements/{match.RequirementId}", "building")), ct);
+            // ALERTS; one row per requirement while unread (several properties sent at once fail together).
+            await bell.PublishAsync(EstateBells.Build(BellTypes.MessageFailed, company, BellRecipients.User(match.AgentId),
+                $"WhatsApp to {requirement?.LeadName ?? "the customer"} was not sent", $"{char.ToUpperInvariant(why[0])}{why[1..]}. Send it from your phone.",
+                $"/real-estate/requirements/{match.RequirementId}", "building", match.Id, clock.GetUtcNow(), BellCategories.Alerts,
+                groupKey: $"estate-message-failed:{match.RequirementId}"), ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

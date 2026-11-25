@@ -479,19 +479,22 @@ public sealed class MatchEngine(
     private Task TellRevivedAsync(RequirementDocument requirement, string what, CancellationToken ct, string? companyId = null) =>
         TellAsync(requirement.CompanyId is { Length: > 0 } c ? c : companyId ?? string.Empty, requirement.AgentId,
             $"{requirement.LeadName ?? "A customer"} asked for this earlier — now available", what, $"/real-estate/requirements/{requirement.Id}",
-            requirement.Id, ct, "ESTATE_REVIVED_MATCH");
+            requirement.Id, ct, BellTypes.RevivedMatch);
 
-    /// <summary>One bell for an agent. A lost bell is logged, never a failed save — the matches are already written.</summary>
+    /// <summary>
+    /// One bell for an agent. A lost bell is logged, never a failed save — the matches are already written. The group key is
+    /// the item the bell is about (property, requirement, unit type), so several saves in a row coalesce into one row.
+    /// </summary>
     private async Task TellAsync(string companyId, string agentId, string title, string? body, string url, string correlation, CancellationToken ct,
-        string type = "ESTATE_NEW_MATCHES")
+        string type = BellTypes.NewMatches)
     {
+        if (string.IsNullOrWhiteSpace(agentId))
+            return;
         try
         {
-            await bell.PublishAsync(new DispatchEventMessage(
-                Guid.NewGuid().ToString(), type, companyId, string.Empty, new { url },
-                new DispatchDelivery(Realtime: false, Persist: true, Push: "IfOffline"),
-                new DispatchMeta("normal", "zeronova-real-estate", correlation, clock.GetUtcNow()),
-                new DispatchNotification(companyId, [agentId], title, body, url, "building")), ct);
+            var group = type == BellTypes.RevivedMatch ? $"estate-revived:{correlation}" : $"estate-matches:{correlation}";
+            await bell.PublishAsync(EstateBells.Build(type, companyId, BellRecipients.User(agentId), title, body, url, "building", correlation,
+                clock.GetUtcNow(), groupKey: group), ct);
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {

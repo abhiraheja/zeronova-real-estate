@@ -75,7 +75,12 @@ public sealed class VisitTests(MongoFixture mongo) : IAsyncLifetime
 
         await host.RunAsJobAsync(async sp => Assert.Equal(1, await sp.GetRequiredService<VisitReminders>().RunOnceAsync(CancellationToken.None)));
         await host.RunAsJobAsync(async sp => Assert.Equal(0, await sp.GetRequiredService<VisitReminders>().RunOnceAsync(CancellationToken.None)));
-        Assert.StartsWith("Site visit at", Assert.Single(host.Bells.Sent).Notification.Title);
+        var bell = Assert.Single(host.Bells.Sent);
+        Assert.StartsWith("Site visit at", bell.Notification.Title);
+        // A reminder is NORMAL said outright (Meta "high" alone would read as URGENT at the hub).
+        Assert.Equal(("ESTATE_VISIT_SOON", "/real-estate/visits", "REAL_ESTATE", "NORMAL"),
+            (bell.Type, bell.Notification.Link, bell.Notification.Category, bell.Notification.Priority));
+        Assert.Null(bell.Notification.GroupKey);
     }
 
     [Fact]
